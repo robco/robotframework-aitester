@@ -15,63 +15,64 @@
 # limitations under the License.
 
 """
-AI platform configuration enum for robotframework-aiagentic.
+AI platform configuration for robotframework-aiagentic.
 
-Defines supported AI platforms with their Strands provider mappings,
-default models, API key environment variables, and base URLs.
+Defines supported AI platforms and their connection parameters,
+including default models, API key environment variables, and
+Strands Agents SDK provider identifiers.
 """
 
 from enum import Enum
 
 
 class Platforms(Enum):
-    """Supported AI platforms for agentic test execution.
+    """Supported AI platforms with their configuration.
 
     Each platform value is a dict with:
-    - strands_provider: The Strands Agents SDK provider name.
     - default_model: Default model ID for this platform.
-    - api_key_env: Environment variable name for the API key.
-    - default_base_url: Base URL override (None = use provider default).
+    - api_key_env: Environment variable name for the API key (None if not needed).
+    - default_base_url: Default base URL (None for cloud defaults).
+    - strands_provider: Strands Agents SDK provider identifier.
     """
 
     OpenAI = {
-        "strands_provider": "openai",
         "default_model": "gpt-4o",
         "api_key_env": "OPENAI_API_KEY",
         "default_base_url": None,
+        "strands_provider": "openai",
     }
 
     Ollama = {
-        "strands_provider": "ollama",
         "default_model": "llama3.3",
         "api_key_env": None,
-        "default_base_url": "http://localhost:11434",
+        "default_base_url": "http://localhost:11434/v1",
+        "strands_provider": "ollama",
     }
 
     Gemini = {
-        "strands_provider": "openai",
         "default_model": "gemini-2.0-flash",
         "api_key_env": "GEMINI_API_KEY",
         "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "strands_provider": "openai",
     }
 
     Anthropic = {
-        "strands_provider": "anthropic",
-        "default_model": "claude-3-7-sonnet-20250219",
+        "default_model": "claude-sonnet-4-5",
         "api_key_env": "ANTHROPIC_API_KEY",
         "default_base_url": None,
+        "strands_provider": "anthropic",
     }
 
     Bedrock = {
-        "strands_provider": "bedrock",
-        "default_model": "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        "default_model": "us.anthropic.claude-sonnet-4-5-20251101-v1:0",
         "api_key_env": None,
         "default_base_url": None,
+        "strands_provider": "bedrock",
     }
 
     Manual = {
-        "strands_provider": "openai",
         "default_model": "gpt-4o",
         "api_key_env": "OPENAI_API_KEY",
         "default_base_url": None,
+        "strands_provider": "openai",
     }
