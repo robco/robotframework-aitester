@@ -1,0 +1,28 @@
+CHANGES
+=======
+
+0.1.0 (2026-03-14)
+------------------
+
+Initial release of robotframework-aiagentic.
+
+Features:
+- 5-layer architecture: RF Keyword > Agent Orchestration > Tool Bridge > AI Provider > Reporting
+- Strands Agents SDK supervisor-agent pattern with 5 specialist agents:
+  - Supervisor, Planner, WebExecutor, ApiExecutor, MobileExecutor, Reporter
+- Multi-platform AI support:
+  - OpenAI (gpt-4o default)
+  - Ollama (llama3.3 default, local inference)
+  - Gemini (gemini-2.0-flash via OpenAI-compatible endpoint)
+  - Anthropic (claude-3-7-sonnet-20250219)
+  - AWS Bedrock (claude-3-7-sonnet via Bedrock)
+- Tool bridges wrapping Robot Framework libraries:
+  - SeleniumLibrary (web testing)
+  - RequestsLibrary (API testing)
+  - AppiumLibrary (mobile testing)
+- Safety mechanisms: iteration limits, session timeouts, cost tracking
+- Multi-format reporting: plain text, JSON, HTML, JUnit XML
+- Example .robot test files for web, API, and mobile testing
+- GitHub Actions CI workflow with Python 3.9–3.13 matrix
+- 51 passing unit tests
+- Apache License 2.0
