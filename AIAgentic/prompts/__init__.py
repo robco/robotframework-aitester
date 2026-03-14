@@ -14,4 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Agent system prompts for robotframework-aiagentic."""
+"""
+System prompt templates for robotframework-aiagentic agents.
+
+Each module defines the system prompt for one specialist agent:
+- supervisor: Orchestrates specialist agents
+- planner: Designs test scenarios
+- web_executor: Executes Selenium-based web tests
+- api_executor: Executes REST API tests
+- mobile_executor: Executes Appium-based mobile tests
+- reporter: Synthesizes test results
+"""
