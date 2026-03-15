@@ -407,7 +407,6 @@ def instrument_tool_list(tools: Iterable[Any]) -> list[Any]:
     return [instrument_tool(tool_obj) for tool_obj in tools]
 
 
-
 @tool
 def record_step(
     action: str,
@@ -460,6 +459,7 @@ def record_step(
 # ---------------------------------------------------------------------------
 # Timing
 # ---------------------------------------------------------------------------
+
 
 @tool
 def sleep_seconds(seconds: float) -> str:
