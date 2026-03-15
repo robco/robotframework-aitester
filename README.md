@@ -3,7 +3,7 @@
 **Fully Autonomous AI Agentic Testing for Robot Framework**
 
 [![Robot Framework](https://img.shields.io/badge/Robot%20Framework-6.0%2B-brightgreen)](https://robotframework.org)
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
 `robotframework-aiagentic` is a Robot Framework library that enables fully autonomous, AI-driven test automation. By combining the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) supervisor-agent orchestration with multi-provider GenAI model access and native RF library integration, this module allows testers to specify **what to test** rather than **how to test it**.
@@ -60,6 +60,9 @@ pip install robotframework-aiagentic[all,openai]
 
 # With Bedrock support
 pip install robotframework-aiagentic[all,bedrock]
+
+# With Anthropic support
+pip install robotframework-aiagentic[all,anthropic]
 
 # With Ollama (local models)
 pip install robotframework-aiagentic[all,ollama]
@@ -144,9 +147,9 @@ Agentic Mobile App Test
 |-----------|-----------------------------------|---------------------|-------------------------------|
 | OpenAI    | gpt-4o                            | OpenAI API          | Requires `OPENAI_API_KEY`     |
 | Ollama    | llama3.3                          | Local Ollama        | Free, local inference         |
-| Gemini    | gemini-2.5-flash                  | Google AI           | Requires `GEMINI_API_KEY`     |
-| Anthropic | claude-sonnet-4-20250514          | Anthropic API       | Requires `ANTHROPIC_API_KEY`  |
-| Bedrock   | us.anthropic.claude-sonnet-4-..   | AWS Bedrock         | Uses AWS credentials          |
+| Gemini    | gemini-2.0-flash                  | Google AI           | Requires `GEMINI_API_KEY`     |
+| Anthropic | claude-sonnet-4-5                 | Anthropic API       | Requires `ANTHROPIC_API_KEY`  |
+| Bedrock   | us.anthropic.claude-sonnet-4-5-20251101-v1:0 | AWS Bedrock | Uses AWS credentials          |
 | Manual    | User-specified                    | OpenAI-compatible   | Custom endpoint               |
 
 ## Configuration
