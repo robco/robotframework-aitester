@@ -1,9 +1,7 @@
 [![Python Package CI](https://github.com/robco/robotframework-aiagentic/actions/workflows/python-package.yml/badge.svg)](https://github.com/robco/robotframework-aiagentic/actions/workflows/python-package.yml)
 
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/robco)
-# robotframework-aiagentic
-
-**Fully Autonomous AI Agentic Testing for Robot Framework**
+# Fully Autonomous AI Agentic Testing for Robot Framework
 
 [![Robot Framework](https://img.shields.io/badge/Robot%20Framework-7.0%2B-brightgreen)](https://robotframework.org)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
