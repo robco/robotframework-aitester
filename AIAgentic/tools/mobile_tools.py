@@ -12,6 +12,8 @@ import logging
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn
 
+from .common_tools import instrument_tool_list
+
 logger = logging.getLogger(__name__)
 
 
@@ -419,7 +421,7 @@ def appium_get_source() -> str:
 # Tool list export
 # ---------------------------------------------------------------------------
 
-MOBILE_TOOLS = [
+MOBILE_TOOLS = instrument_tool_list([
     appium_open_application,
     appium_close_application,
     appium_close_all_applications,
@@ -443,4 +445,4 @@ MOBILE_TOOLS = [
     appium_wait_until_page_contains,
     appium_capture_page_screenshot,
     appium_get_source,
-]
+])

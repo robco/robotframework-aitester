@@ -13,6 +13,8 @@ import logging
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn
 
+from .common_tools import instrument_tool_list
+
 logger = logging.getLogger(__name__)
 
 
@@ -287,7 +289,7 @@ def _format_response_body(resp) -> str:
 # Tool list export
 # ---------------------------------------------------------------------------
 
-API_TOOLS = [
+API_TOOLS = instrument_tool_list([
     api_create_session,
     api_delete_all_sessions,
     api_get,
@@ -300,4 +302,4 @@ API_TOOLS = [
     api_status_should_be,
     api_response_should_contain,
     api_extract_json_field,
-]
+])

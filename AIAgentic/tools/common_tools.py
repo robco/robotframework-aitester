@@ -8,13 +8,19 @@ These tools provide general-purpose functionality like screenshots,
 assertions, logging, timing, and optional aivision integration.
 """
 
+import functools
+import inspect
 import json
 import logging
 import os
 import time
+from typing import Any, Iterable, Optional
 from strands import tool
+from strands.tools.decorator import DecoratedFunctionTool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 from robot.api import logger as rf_logger
+
+from ..executor import StepStatus, record_step as record_step_impl, get_active_session
 
 logger = logging.getLogger(__name__)
 
@@ -167,8 +173,293 @@ def log_step_result(step_description: str, status: str, details: str = "") -> st
 
 
 # ---------------------------------------------------------------------------
+# Agentic step recording
+# ---------------------------------------------------------------------------
+
+def _normalize_step_status(status: str) -> StepStatus:
+    """Normalize free-form status string into StepStatus."""
+    value = str(status).strip().lower()
+    if value in ("pass", "passed", "ok", "success"):
+        return StepStatus.PASSED
+    if value in ("fail", "failed"):
+        return StepStatus.FAILED
+    if value in ("skip", "skipped", "ignored", "ignore"):
+        return StepStatus.SKIPPED
+    return StepStatus.ERROR
+
+
+def _coerce_float(value, default: float = 0.0) -> float:
+    """Best-effort float coercion for tool inputs."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _log_agentic_step_to_rf(
+    action: str,
+    description: str,
+    status: StepStatus,
+    duration_ms: float,
+    screenshot_path: str = None,
+    assertion_message: str = None,
+    error_message: str = None,
+) -> None:
+    """Emit an agentic step as a Robot Framework keyword entry."""
+    try:
+        bi = BuiltIn()
+        args = [
+            action,
+            description,
+            status.value,
+            f"{duration_ms:.0f}",
+            assertion_message or "",
+            error_message or "",
+            screenshot_path or "",
+        ]
+        if status in (StepStatus.FAILED, StepStatus.ERROR):
+            bi.run_keyword_and_ignore_error("Agentic Step", *args)
+        else:
+            bi.run_keyword("Agentic Step", *args)
+    except RobotNotRunningError:
+        # Fallback when running outside RF
+        rf_logger.info(
+            f"[AGENTIC STEP] {action} - {description} ({status.value})"
+        )
+    except Exception as exc:
+        logger.debug("Unable to log agentic step to RF: %s", exc)
+
+
+def _is_sensitive_key(name: str) -> bool:
+    lowered = name.lower()
+    return any(
+        token in lowered
+        for token in (
+            "password",
+            "passwd",
+            "secret",
+            "token",
+            "api_key",
+            "apikey",
+            "authorization",
+            "auth",
+            "bearer",
+        )
+    )
+
+
+def _truncate(value: Any, limit: int = 120) -> str:
+    text = str(value)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def _build_description(action: str, func, args, kwargs) -> str:
+    try:
+        sig = inspect.signature(func)
+        bound = sig.bind_partial(*args, **kwargs)
+        parts = []
+        for name, value in bound.arguments.items():
+            if name == "tool_context":
+                continue
+            if value is None:
+                continue
+            display = "***" if _is_sensitive_key(name) else _truncate(value)
+            parts.append(f"{name}={display}")
+        if parts:
+            return ", ".join(parts)
+    except Exception:
+        pass
+
+    arg_text = ", ".join(_truncate(a) for a in args if a is not None)
+    if arg_text:
+        return arg_text
+    return action
+
+
+def _status_from_result(result: Any) -> Optional[StepStatus]:
+    if not isinstance(result, str):
+        return None
+    text = result.strip()
+    if not text:
+        return None
+    upper = text.upper()
+    if upper.startswith("PASS:"):
+        return StepStatus.PASSED
+    if upper.startswith("FAIL:"):
+        return StepStatus.FAILED
+    if upper.startswith("SKIP:"):
+        return StepStatus.SKIPPED
+    if upper.startswith("ERROR:"):
+        return StepStatus.ERROR
+    return None
+
+
+def _extract_assertion_message(result: Any, status: StepStatus) -> Optional[str]:
+    if not isinstance(result, str):
+        return None
+    if status in (StepStatus.FAILED, StepStatus.ERROR, StepStatus.SKIPPED):
+        return _truncate(result, 500)
+    if result.strip().startswith(("PASS:", "FAIL:", "ERROR:", "SKIP:")):
+        return _truncate(result, 500)
+    if "Status:" in result or "Response:" in result:
+        return _truncate(result, 500)
+    return None
+
+
+def _extract_screenshot_path(result: Any) -> Optional[str]:
+    if not isinstance(result, str):
+        return None
+    marker = "Screenshot captured:"
+    if marker in result:
+        return result.split(marker, 1)[1].strip()
+    return None
+
+
+def _record_tool_step(
+    action: str,
+    description: str,
+    status: StepStatus,
+    duration_ms: float,
+    screenshot_path: str = None,
+    assertion_message: str = None,
+    error_message: str = None,
+) -> None:
+    session = get_active_session()
+    if session:
+        record_step_impl(
+            session=session,
+            action=action,
+            description=description,
+            status=status,
+            duration_ms=duration_ms,
+            screenshot_path=screenshot_path,
+            assertion_message=assertion_message,
+            error_message=error_message,
+        )
+    _log_agentic_step_to_rf(
+        action=action,
+        description=description,
+        status=status,
+        duration_ms=duration_ms,
+        screenshot_path=screenshot_path,
+        assertion_message=assertion_message,
+        error_message=error_message,
+    )
+
+
+def instrument_tool(tool_obj: Any) -> Any:
+    if not isinstance(tool_obj, DecoratedFunctionTool):
+        return tool_obj
+    if getattr(tool_obj, "_agentic_instrumented", False):
+        return tool_obj
+
+    original_func = tool_obj._tool_func
+    action_name = tool_obj.tool_name or original_func.__name__
+
+    @functools.wraps(original_func)
+    def wrapped(*args, **kwargs):
+        start = time.time()
+        error = None
+        result = None
+        try:
+            result = original_func(*args, **kwargs)
+            return result
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            duration_ms = max((time.time() - start) * 1000.0, 0.0)
+            if error is None:
+                status = StepStatus.PASSED
+                derived = _status_from_result(result)
+                if derived:
+                    status = derived
+                error_message = None
+            else:
+                status = StepStatus.FAILED if isinstance(error, AssertionError) else StepStatus.ERROR
+                if isinstance(error, AssertionError):
+                    error_message = str(error)
+                else:
+                    error_message = f"{type(error).__name__}: {error}"
+
+            description = _build_description(action_name, original_func, args, kwargs)
+            assertion_message = _extract_assertion_message(result, status)
+            screenshot_path = _extract_screenshot_path(result)
+
+            _record_tool_step(
+                action=action_name,
+                description=description,
+                status=status,
+                duration_ms=duration_ms,
+                screenshot_path=screenshot_path,
+                assertion_message=assertion_message,
+                error_message=error_message,
+            )
+
+    tool_obj._tool_func = wrapped
+    tool_obj._agentic_instrumented = True
+    return tool_obj
+
+
+def instrument_tool_list(tools: Iterable[Any]) -> list[Any]:
+    return [instrument_tool(tool_obj) for tool_obj in tools]
+
+
+@tool
+def record_step(
+    action: str,
+    description: str,
+    status: str,
+    duration_ms: str = "0",
+    screenshot_path: str = None,
+    assertion_message: str = None,
+    error_message: str = None,
+) -> str:
+    """Records a test step in the active session and RF log.
+
+    Args:
+        action: Tool/action name.
+        description: Human-readable step description.
+        status: PASS/FAIL/SKIP/ERROR (case-insensitive).
+        duration_ms: Execution time in milliseconds.
+        screenshot_path: Optional screenshot path.
+        assertion_message: Assertion detail.
+        error_message: Error detail.
+
+    Returns:
+        Confirmation message.
+    """
+    step_status = _normalize_step_status(status)
+    duration = _coerce_float(duration_ms)
+    session = get_active_session()
+    if session:
+        record_step_impl(
+            session=session,
+            action=action,
+            description=description,
+            status=step_status,
+            duration_ms=duration,
+            screenshot_path=screenshot_path,
+            assertion_message=assertion_message,
+            error_message=error_message,
+        )
+    _log_agentic_step_to_rf(
+        action=action,
+        description=description,
+        status=step_status,
+        duration_ms=duration,
+        screenshot_path=screenshot_path,
+        assertion_message=assertion_message,
+        error_message=error_message,
+    )
+    return f"Recorded step: {action} - {description} ({step_status.value})"
+
+# ---------------------------------------------------------------------------
 # Timing
 # ---------------------------------------------------------------------------
+
 
 @tool
 def sleep_seconds(seconds: float) -> str:
@@ -282,6 +573,7 @@ COMMON_TOOLS = [
     assert_matches_pattern,
     log_message,
     log_step_result,
+    record_step,
     sleep_seconds,
     parse_json,
     get_current_timestamp,

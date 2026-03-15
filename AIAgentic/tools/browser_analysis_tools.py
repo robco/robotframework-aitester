@@ -14,6 +14,8 @@ import logging
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn
 
+from .common_tools import instrument_tool_list
+
 logger = logging.getLogger(__name__)
 
 
@@ -357,7 +359,7 @@ def check_page_errors() -> str:
 # Tool list export
 # ---------------------------------------------------------------------------
 
-BROWSER_ANALYSIS_TOOLS = [
+BROWSER_ANALYSIS_TOOLS = instrument_tool_list([
     get_interactive_elements,
     get_page_structure,
     get_page_text_content,
@@ -365,4 +367,4 @@ BROWSER_ANALYSIS_TOOLS = [
     get_all_links,
     get_form_fields,
     check_page_errors,
-]
+])
