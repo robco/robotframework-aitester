@@ -143,23 +143,23 @@ Agentic Mobile App Test
 
 ## Supported AI Platforms
 
-| Platform   | Default Model                     | Provider            | Notes                          |
+| Platform  | Default Model                     | Provider            | Notes                         |
 |-----------|-----------------------------------|---------------------|-------------------------------|
 | OpenAI    | gpt-4o                            | OpenAI API          | Requires `OPENAI_API_KEY`     |
 | Ollama    | llama3.3                          | Local Ollama        | Free, local inference         |
 | Gemini    | gemini-2.0-flash                  | Google AI           | Requires `GEMINI_API_KEY`     |
 | Anthropic | claude-sonnet-4-5                 | Anthropic API       | Requires `ANTHROPIC_API_KEY`  |
-| Bedrock   | us.anthropic.claude-sonnet-4-5-20251101-v1:0 | AWS Bedrock | Uses AWS credentials          |
+| Bedrock   | us.anthropic.claude-sonnet-4-5-20251101-v1:0 | AWS Bedrock | Uses AWS credentials       |
 | Manual    | User-specified                    | OpenAI-compatible   | Custom endpoint               |
 
 ## Configuration
 
 ### Environment Variables
 
-| Variable            | Description                                  |
+| Variable           | Description                                  |
 |--------------------|----------------------------------------------|
 | `OPENAI_API_KEY`   | OpenAI API key                               |
-| `GEMINI_API_KEY`   | Google Gemini API key                         |
+| `GEMINI_API_KEY`   | Google Gemini API key                        |
 | `ANTHROPIC_API_KEY`| Anthropic API key                            |
 | `AWS_*`            | AWS credentials for Bedrock                  |
 
@@ -179,7 +179,7 @@ Library    AIAgentic
 
 ### Constructor Parameters
 
-| Parameter              | Default    | Description                                   |
+| Parameter             | Default    | Description                                   |
 |-----------------------|------------|-----------------------------------------------|
 | `platform`            | OpenAI     | AI platform (OpenAI, Ollama, Gemini, etc.)    |
 | `model`               | (varies)   | Model ID override                             |
@@ -188,13 +188,13 @@ Library    AIAgentic
 | `max_iterations`      | 50         | Maximum agent iterations                      |
 | `test_mode`           | web        | Default test mode (web, api, mobile)          |
 | `verbose`             | False      | Enable verbose agent logging                  |
-| `report_formats`      | text,json,html | Comma-separated report formats           |
+| `report_formats`      | text,json,html | Comma-separated report formats            |
 | `timeout_seconds`     | 600        | Session timeout in seconds                    |
 | `max_cost_usd`        | None       | Maximum session cost in USD                   |
 
 ## Keywords
 
-| Keyword                     | Description                                        |
+| Keyword                     | Description                                       |
 |----------------------------|----------------------------------------------------|
 | `Run Agentic Test`         | Execute an autonomous test from a test objective   |
 | `Run Agentic Exploration`  | Run exploratory testing with focus areas           |
