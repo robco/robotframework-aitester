@@ -1,3 +1,6 @@
+[![Python Package CI](https://github.com/robco/robotframework-aiagentic/actions/workflows/python-package.yml/badge.svg)](https://github.com/robco/robotframework-aiagentic/actions/workflows/python-package.yml)
+
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/robco)
 # robotframework-aiagentic
 
 **Fully Autonomous AI Agentic Testing for Robot Framework**
