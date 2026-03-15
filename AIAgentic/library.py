@@ -23,7 +23,6 @@ that testers invoke from .robot files.
 """
 
 import logging
-import os
 
 from robot.api.deco import keyword
 from robot.api import logger as rf_logger
@@ -32,14 +31,7 @@ from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 from .platforms import Platforms
 from .genai import GenAIProvider
 from .orchestrator import AgentOrchestrator
-from .executor import (
-    TestSession,
-    SessionStatus,
-    SafetyGuard,
-    create_session,
-    record_step,
-    StepStatus,
-)
+from .executor import SafetyGuard
 from .reporter import TestReporter
 
 logger = logging.getLogger(__name__)
@@ -326,7 +318,7 @@ class AIAgentic:
         iters = int(max_iterations) if max_iterations else self.max_iterations
 
         # Build app context from API details
-        app_context = f"REST API"
+        app_context = "REST API"
         if base_url:
             app_context += f" at {base_url}"
         if api_spec_url:
@@ -376,7 +368,7 @@ class AIAgentic:
 
         iters = int(max_iterations) if max_iterations else self.max_iterations
 
-        rf_logger.info(f"Starting agentic mobile test")
+        rf_logger.info("Starting agentic mobile test")
 
         try:
             result = self._orchestrator.run(

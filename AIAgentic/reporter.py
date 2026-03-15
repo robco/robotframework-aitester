@@ -25,12 +25,12 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict
 
 from robot.api import logger as rf_logger
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
-from .executor import TestSession, SessionStatus
+from .executor import TestSession
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +181,10 @@ class TestReporter:
         screenshots_html = ""
         for ss in data.get("screenshots", []):
             filename = os.path.basename(ss)
-            screenshots_html += f'<div class="screenshot"><img src="{filename}" alt="{filename}"><p>{filename}</p></div>'
+            screenshots_html += (
+                f'<div class="screenshot"><img src="{filename}" alt="{filename}">'
+                f"<p>{filename}</p></div>"
+            )
 
         html = f"""<!DOCTYPE html>
 <html lang="en">

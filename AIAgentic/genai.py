@@ -25,8 +25,6 @@ model providers instead of direct OpenAI client usage.
 import os
 import logging
 
-from .platforms import Platforms
-
 logger = logging.getLogger(__name__)
 
 
