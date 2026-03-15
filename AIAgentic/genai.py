@@ -121,6 +121,10 @@ class GenAIProvider:
             )
 
         host = self.base_url or "http://localhost:11434"
+        if host.endswith("/v1"):
+            host = host[: -len("/v1")]
+        if host.endswith("/v1/"):
+            host = host[: -len("/v1/")]
 
         logger.debug(
             "Creating OllamaModel: model_id=%s, host=%s",
