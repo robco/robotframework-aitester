@@ -38,8 +38,9 @@ class Platforms(Enum):
     OpenAI = {
         "default_model": "gpt-4o",
         "api_key_env": "OPENAI_API_KEY",
-        "default_base_url": None,
+        "default_base_url": "https://api.openai.com/v1",
         "strands_provider": "openai",
+        "supports_tool_use": True,
     }
 
     Ollama = {
@@ -47,6 +48,7 @@ class Platforms(Enum):
         "api_key_env": None,
         "default_base_url": "http://localhost:11434/v1",
         "strands_provider": "ollama",
+        "supports_tool_use": True,
     }
 
     Gemini = {
@@ -54,6 +56,7 @@ class Platforms(Enum):
         "api_key_env": "GEMINI_API_KEY",
         "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "strands_provider": "openai",
+        "supports_tool_use": True,
     }
 
     Anthropic = {
@@ -61,6 +64,7 @@ class Platforms(Enum):
         "api_key_env": "ANTHROPIC_API_KEY",
         "default_base_url": None,
         "strands_provider": "anthropic",
+        "supports_tool_use": True,
     }
 
     Bedrock = {
@@ -68,11 +72,13 @@ class Platforms(Enum):
         "api_key_env": None,
         "default_base_url": None,
         "strands_provider": "bedrock",
+        "supports_tool_use": True,
     }
 
     Manual = {
-        "default_model": "gpt-4o",
-        "api_key_env": "OPENAI_API_KEY",
+        "default_model": None,
+        "api_key_env": None,
         "default_base_url": None,
         "strands_provider": "openai",
+        "supports_tool_use": True,
     }
