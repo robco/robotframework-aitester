@@ -12,6 +12,8 @@ import logging
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn
 
+from .common_tools import instrument_tool_list
+
 logger = logging.getLogger(__name__)
 
 
@@ -666,7 +668,7 @@ def selenium_unselect_frame() -> str:
 # Tool list export
 # ---------------------------------------------------------------------------
 
-WEB_TOOLS = [
+WEB_TOOLS = instrument_tool_list([
     selenium_open_browser,
     selenium_close_browser,
     selenium_close_all_browsers,
@@ -708,4 +710,4 @@ WEB_TOOLS = [
     selenium_switch_window,
     selenium_select_frame,
     selenium_unselect_frame,
-]
+])

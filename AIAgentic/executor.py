@@ -30,6 +30,23 @@ from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Active session context (shared across tools)
+# ---------------------------------------------------------------------------
+
+_ACTIVE_SESSION: Optional["TestSession"] = None
+
+
+def set_active_session(session: Optional["TestSession"]) -> None:
+    """Set the active session for tool-level step recording."""
+    global _ACTIVE_SESSION
+    _ACTIVE_SESSION = session
+
+
+def get_active_session() -> Optional["TestSession"]:
+    """Get the current active session for tool-level step recording."""
+    return _ACTIVE_SESSION
+
 
 class StepStatus(Enum):
     """Status of an individual test step."""
