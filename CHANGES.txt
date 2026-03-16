@@ -1,14 +1,2 @@
-0.1.0, Initial release — Phase 1: Core Architecture + Web Testing + API Testing
-  - AIAgentic main library class with Run Agentic Test, Run Agentic Exploration, Run Agentic API Test, Run Agentic Mobile Test keywords
-  - Strands Agents SDK supervisor-agent orchestration pattern (Supervisor → Planner, Web Executor, API Executor, Mobile Executor, Reporter)
-  - Complete Selenium bridge tools (41 @tool functions wrapping SeleniumLibrary)
-  - Complete REST API bridge tools (12 @tool functions wrapping RequestsLibrary)
-  - Complete Appium bridge tools (23 @tool functions wrapping AppiumLibrary)
-  - Browser analysis tools for DOM understanding (interactive elements, page structure, form fields)
-  - Common utility tools (assertions, logging, timing, AIVision integration)
-  - Multi-provider GenAI support: OpenAI, Ollama, Gemini, Anthropic, Bedrock
-  - Execution state management with TestSession, TestStep, TestScenario dataclasses
-  - Safety guards: iteration limits, timeouts, cost tracking, action whitelists/blacklists
-  - Multi-format reporting: Text, JSON, HTML, JUnit XML
-  - Robot Framework listener (v3 API) for real-time reporting
-  - Agent system prompts for all 6 specialist agents
+0.2.0,   2026-03-16   -- Existing test session detection and reuse added.
+0.1.0,   2026-03-15   -- Initial release — Phase 1: Core Architecture + Web Testing + API Testing
