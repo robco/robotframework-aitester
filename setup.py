@@ -18,7 +18,7 @@ from setuptools import setup, find_packages
 
 
 def version():
-    with open("CHANGES.txt") as changes:
+    with open("CHANGES") as changes:
         return changes.readline().split(",")[0]
 
 
@@ -31,7 +31,7 @@ def readme():
     changes_title = "\n\nVersion history\n----------------\n\n"
     formatted_changes = []
 
-    with open("CHANGES.txt", "r") as ch:
+    with open("CHANGES", "r") as ch:
         for line in ch:
             stripped_line = line.strip()
             if stripped_line:

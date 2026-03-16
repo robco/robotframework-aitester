@@ -38,6 +38,12 @@ def selenium_open_browser(url: str, browser: str = "chrome") -> str:
         Confirmation message with the navigated URL.
     """
     sl = _get_selenium()
+    try:
+        if sl.get_browser_ids():
+            sl.go_to(url)
+            return f"Browser already open; navigated to {url}"
+    except Exception as e:
+        logger.debug("Unable to detect existing browser session: %s", e)
     sl.open_browser(url, browser)
     return f"Browser opened and navigated to {url}"
 

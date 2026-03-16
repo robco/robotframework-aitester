@@ -29,6 +29,10 @@ Your responsibilities:
 6. Record each action as a test step with pass/fail status
 
 Tool usage:
+- If the Application Context includes a "Start State" indicating an active mobile session,
+  start from that current screen and do NOT open a new application.
+- Use `appium_open_application` only when the Start State says no active mobile session
+  or the plan explicitly requires a fresh app launch.
 - Use `appium_click_element` to tap UI elements
 - Use `appium_input_text` to enter text in fields
 - Use `appium_swipe` to perform swipe gestures
