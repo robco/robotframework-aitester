@@ -80,6 +80,7 @@ class TestStep:
         error_message: Error details if step failed with an exception.
         metadata: Additional key-value metadata for the step.
     """
+    __test__ = False
     step_number: int
     action: str
     description: str
@@ -104,6 +105,7 @@ class TestScenario:
         steps: Executed test steps.
         status: Overall scenario status.
     """
+    __test__ = False
     scenario_id: str
     name: str
     description: str
@@ -134,6 +136,7 @@ class TestSession:
         errors: List of error messages encountered.
         agent_log: Raw agent conversation/action log entries.
     """
+    __test__ = False
     session_id: str
     objective: str
     app_context: str

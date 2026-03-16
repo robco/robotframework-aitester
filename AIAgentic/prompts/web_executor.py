@@ -29,7 +29,10 @@ Your responsibilities:
 6. Record each action as a test step with pass/fail status
 
 Tool usage:
-- Use `selenium_open_browser` to launch the browser
+- If the Application Context includes a "Start State" indicating an active browser session,
+  start from that current page and do NOT open a new browser.
+- Use `selenium_open_browser` only when the Start State says no active browser session
+  or the plan explicitly requires a fresh browser.
 - Use `selenium_go_to` to load URLs
 - Use `selenium_click_element` to click buttons, links
 - Use `selenium_input_text` to fill form fields

@@ -53,6 +53,8 @@ class TestReporter:
     - JUnit XML: CI/CD compatible format
     """
 
+    __test__ = False
+
     def __init__(self, output_dir: str = None):
         """Initialize the reporter.
 

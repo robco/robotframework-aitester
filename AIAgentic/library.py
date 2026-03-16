@@ -24,6 +24,7 @@ that testers invoke from .robot files.
 
 import logging
 import os
+from typing import Any, Dict, Optional
 
 from robot.api.deco import keyword
 from robot.api import logger as rf_logger
@@ -187,6 +188,191 @@ class AIAgentic:
                 list(available_libs.keys()),
             )
 
+    def _get_library_instance(self, name: str):
+        """Safely retrieve a Robot Framework library instance."""
+        try:
+            return BuiltIn().get_library_instance(name)
+        except (RuntimeError, RobotNotRunningError):
+            return None
+
+    @staticmethod
+    def _first_capability(caps: Dict[str, Any], *keys: str) -> Optional[Any]:
+        """Return first non-empty capability matching any of the given keys."""
+        if not caps:
+            return None
+        normalized = {str(k).lower(): v for k, v in caps.items()}
+        for key in keys:
+            if key in caps and caps[key]:
+                return caps[key]
+            low_key = str(key).lower()
+            if low_key in normalized and normalized[low_key]:
+                return normalized[low_key]
+        return None
+
+    def _build_web_start_state(self) -> str:
+        """Describe current web start state, if any."""
+        sl = self._get_library_instance("SeleniumLibrary")
+        if not sl:
+            return "Start State: No active browser session detected. Start from scratch."
+
+        try:
+            browser_ids = sl.get_browser_ids()
+        except Exception as e:
+            logger.debug("Unable to read browser ids: %s", e)
+            return "Start State: No active browser session detected. Start from scratch."
+
+        if not browser_ids:
+            return "Start State: No active browser session detected. Start from scratch."
+
+        url = None
+        title = None
+        try:
+            url = sl.get_location()
+        except Exception as e:
+            logger.debug("Unable to read current URL: %s", e)
+        try:
+            title = sl.get_title()
+        except Exception as e:
+            logger.debug("Unable to read page title: %s", e)
+
+        lines = [
+            "Start State: Active browser session detected.",
+            f"Open browsers: {len(browser_ids)}",
+        ]
+        if url:
+            lines.append(f"Current URL: {url}")
+        if title:
+            lines.append(f"Title: {title}")
+        return "\n".join(lines)
+
+    def _build_mobile_start_state(self) -> str:
+        """Describe current mobile start state, if any."""
+        al = self._get_library_instance("AppiumLibrary")
+        if not al:
+            return "Start State: No active mobile session detected. Start from scratch."
+
+        try:
+            driver = al._current_application()
+        except Exception as e:
+            logger.debug("Unable to read current Appium application: %s", e)
+            return "Start State: No active mobile session detected. Start from scratch."
+
+        lines = ["Start State: Active mobile session detected."]
+
+        try:
+            open_apps = al._cache.get_open_browsers()
+            lines.append(f"Open applications: {len(open_apps)}")
+        except Exception as e:
+            logger.debug("Unable to read open Appium applications: %s", e)
+
+        session_id = getattr(driver, "session_id", None)
+        if session_id:
+            lines.append(f"Session ID: {session_id}")
+
+        context = None
+        try:
+            context = getattr(driver, "current_context", None)
+            if callable(context):
+                context = context()
+        except Exception as e:
+            logger.debug("Unable to read current context: %s", e)
+        if context:
+            lines.append(f"Current context: {context}")
+
+        activity = None
+        try:
+            activity = getattr(driver, "current_activity", None)
+            if callable(activity):
+                activity = activity()
+        except Exception as e:
+            logger.debug("Unable to read current activity: %s", e)
+        if activity:
+            lines.append(f"Current activity: {activity}")
+
+        package = None
+        try:
+            package = getattr(driver, "current_package", None)
+            if callable(package):
+                package = package()
+        except Exception as e:
+            logger.debug("Unable to read current package: %s", e)
+        if package:
+            lines.append(f"Current package: {package}")
+
+        caps = getattr(driver, "capabilities", None) or getattr(
+            driver, "desired_capabilities", None
+        )
+        if isinstance(caps, dict):
+            platform = self._first_capability(
+                caps, "platformName", "appium:platformName", "platform"
+            )
+            platform_version = self._first_capability(
+                caps, "platformVersion", "appium:platformVersion"
+            )
+            device = self._first_capability(
+                caps, "deviceName", "appium:deviceName"
+            )
+            automation = self._first_capability(
+                caps, "automationName", "appium:automationName"
+            )
+            app = self._first_capability(
+                caps, "app", "appium:app", "appPath"
+            )
+            app_package = self._first_capability(
+                caps, "appPackage", "appium:appPackage"
+            )
+            app_activity = self._first_capability(
+                caps, "appActivity", "appium:appActivity"
+            )
+            bundle_id = self._first_capability(
+                caps, "bundleId", "appium:bundleId"
+            )
+            udid = self._first_capability(caps, "udid", "appium:udid")
+            browser_name = self._first_capability(
+                caps, "browserName", "appium:browserName"
+            )
+
+            if platform:
+                lines.append(f"Platform: {platform}")
+            if platform_version:
+                lines.append(f"Platform version: {platform_version}")
+            if device:
+                lines.append(f"Device: {device}")
+            if automation:
+                lines.append(f"Automation: {automation}")
+            if app:
+                lines.append(f"App: {app}")
+            if app_package:
+                lines.append(f"App package: {app_package}")
+            if app_activity:
+                lines.append(f"App activity: {app_activity}")
+            if bundle_id:
+                lines.append(f"Bundle ID: {bundle_id}")
+            if udid:
+                lines.append(f"UDID: {udid}")
+            if browser_name:
+                lines.append(f"Browser: {browser_name}")
+
+        return "\n".join(lines)
+
+    def _build_start_state_summary(self, test_mode: str) -> str:
+        """Build a start-state summary for the given test mode."""
+        mode = (test_mode or "").strip().lower()
+        if mode == "web":
+            return self._build_web_start_state()
+        if mode == "mobile":
+            return self._build_mobile_start_state()
+        return ""
+
+    @staticmethod
+    def _merge_app_context(app_context: str, start_state: str) -> str:
+        """Merge app context with the detected start state."""
+        if not start_state:
+            return app_context
+        if app_context:
+            return f"{app_context}\n\n{start_state}"
+        return start_state
+
     def _start_session(self, objective: str, app_context: str, test_mode: str, max_iterations: int):
         """Create and register an active session for step recording."""
         session = create_session(
@@ -303,6 +489,8 @@ class AIAgentic:
 
         mode = test_mode or self.test_mode
         iters = int(max_iterations) if max_iterations else self.max_iterations
+        start_state = self._build_start_state_summary(mode)
+        app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
             objective=test_objective,
             app_context=app_context,
@@ -371,6 +559,8 @@ class AIAgentic:
         self._ensure_orchestrator()
 
         iters = int(max_iterations) if max_iterations else self.max_iterations
+        start_state = self._build_start_state_summary(self.test_mode)
+        app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
             objective="EXPLORATORY TESTING",
             app_context=app_context,
@@ -507,6 +697,8 @@ class AIAgentic:
 
         rf_logger.info("Starting agentic mobile test")
 
+        start_state = self._build_start_state_summary("mobile")
+        app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
             objective=test_objective,
             app_context=app_context,

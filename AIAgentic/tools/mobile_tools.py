@@ -47,6 +47,11 @@ def appium_open_application(
         Confirmation message.
     """
     al = _get_appium()
+    try:
+        al._current_application()
+        return "Application already open; using existing session"
+    except Exception as e:
+        logger.debug("No active Appium session detected: %s", e)
     kwargs = {"platformName": platform_name}
     if app:
         kwargs["app"] = app
