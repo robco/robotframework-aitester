@@ -54,7 +54,7 @@ setup(
     python_requires=">=3.9",
     install_requires=[
         "robotframework>=6.0",
-        "strands-agents>=1.29.0",
+        "strands-agents[ollama,gemini]>=1.29.0",
         "strands-agents-tools>=0.2.0",
         "openai>=2.0.0",
         "pillow>=11.0.0",
