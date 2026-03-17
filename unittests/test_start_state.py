@@ -3,6 +3,8 @@
 
 """Unit tests for start-state detection in AIAgentic."""
 
+import pytest
+
 from AIAgentic.library import AIAgentic
 
 
@@ -151,6 +153,18 @@ def test_merge_app_context_includes_start_state():
     merged = agentic._merge_app_context("Base context", "Start State: Active")
     assert "Base context" in merged
     assert "Start State: Active" in merged
+
+
+def test_assert_active_web_session_raises_when_missing(monkeypatch):
+    agentic = AIAgentic()
+
+    class DummySeleniumEmpty:
+        def get_browser_ids(self):
+            return []
+
+    monkeypatch.setattr(agentic, "_get_library_instance", lambda name: DummySeleniumEmpty())
+    with pytest.raises(AssertionError):
+        agentic._assert_active_web_session()
 
 
 def test_has_active_start_state():

@@ -231,6 +231,10 @@ If you import SeleniumLibrary/RequestsLibrary/AppiumLibrary with an alias,
 pass the corresponding `*_library` parameter so agentic tools attach to the
 already-opened session.
 
+Important: AIAgentic can only drive sessions created by SeleniumLibrary/AppiumLibrary.
+If you open a browser/app manually or through another tool, the agent will not
+be able to interact with it.
+
 ### Session Reuse (No New Browsers/Apps)
 
 If an active Selenium or Appium session is detected, AIAgentic **reuses it**

@@ -454,6 +454,71 @@ class AIAgentic:
             return f"{app_context}\n\n{start_state}"
         return start_state
 
+    def _resolve_selenium_library_name(self) -> str:
+        try:
+            override = BuiltIn().get_variable_value("${AIAGENTIC_SELENIUM_LIBRARY}")
+            if override:
+                return str(override)
+        except (RuntimeError, RobotNotRunningError):
+            pass
+        return self.selenium_library or "SeleniumLibrary"
+
+    def _resolve_appium_library_name(self) -> str:
+        try:
+            override = BuiltIn().get_variable_value("${AIAGENTIC_APPIUM_LIBRARY}")
+            if override:
+                return str(override)
+        except (RuntimeError, RobotNotRunningError):
+            pass
+        return self.appium_library or "AppiumLibrary"
+
+    def _assert_active_web_session(self) -> None:
+        lib_name = self._resolve_selenium_library_name()
+        sl = self._get_library_instance(lib_name)
+        if not sl:
+            raise AssertionError(
+                f"SeleniumLibrary instance '{lib_name}' not found. "
+                "Ensure SeleniumLibrary is imported and that AIAgentic is "
+                "configured with the correct selenium_library alias."
+            )
+        try:
+            browser_ids = sl.get_browser_ids()
+        except Exception as exc:
+            raise AssertionError(
+                f"Unable to access Selenium browser session from '{lib_name}': {exc}. "
+                "Ensure the browser was opened by the same SeleniumLibrary instance."
+            ) from exc
+        if not browser_ids:
+            raise AssertionError(
+                "Reuse of an existing browser session is required, but the "
+                f"SeleniumLibrary instance '{lib_name}' has no active browsers. "
+                "Open the browser with the same SeleniumLibrary instance or set "
+                "selenium_library to the correct alias."
+            )
+        try:
+            sl.get_location()
+        except Exception as exc:
+            raise AssertionError(
+                f"Active Selenium session in '{lib_name}' is not reachable: {exc}."
+            ) from exc
+
+    def _assert_active_mobile_session(self) -> None:
+        lib_name = self._resolve_appium_library_name()
+        al = self._get_library_instance(lib_name)
+        if not al:
+            raise AssertionError(
+                f"AppiumLibrary instance '{lib_name}' not found. "
+                "Ensure AppiumLibrary is imported and that AIAgentic is "
+                "configured with the correct appium_library alias."
+            )
+        try:
+            al._current_application()
+        except Exception as exc:
+            raise AssertionError(
+                f"Unable to access Appium session from '{lib_name}': {exc}. "
+                "Ensure the app was opened by the same AppiumLibrary instance."
+            ) from exc
+
     @staticmethod
     def _escape_html(text: str) -> str:
         return html.escape(str(text), quote=False)
@@ -896,6 +961,10 @@ class AIAgentic:
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
         )
+        if mode == "web" and reuse_existing_session:
+            self._assert_active_web_session()
+        if mode == "mobile" and reuse_existing_session:
+            self._assert_active_mobile_session()
 
         rf_logger.info(
             f"Starting agentic test: mode={mode}, max_iterations={iters}",
@@ -976,6 +1045,10 @@ class AIAgentic:
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
         )
+        if self.test_mode == "web" and reuse_existing_session:
+            self._assert_active_web_session()
+        if self.test_mode == "mobile" and reuse_existing_session:
+            self._assert_active_mobile_session()
 
         rf_logger.info(f"Starting exploratory test: focus={focus_areas}")
         rf_logger.info(f"App context: {app_context}")
@@ -1142,6 +1215,8 @@ class AIAgentic:
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
         )
+        if reuse_existing_session:
+            self._assert_active_mobile_session()
         if high_level_steps:
             self._log_user_defined_steps(high_level_steps)
 
