@@ -18,8 +18,8 @@
 Agent orchestrator implementing the Strands SDK supervisor-agent pattern.
 
 A single Supervisor Agent acts as a QA Test Lead, delegating work to
-five specialist agents: Test Planner, Web Executor, API Executor,
-Mobile Executor, and Reporter.
+specialist agents: Test Planner, Web Executor, API Executor, and
+Mobile Executor.
 """
 
 import logging
@@ -32,7 +32,6 @@ from .prompts import (
     WEB_EXECUTOR_PROMPT,
     API_EXECUTOR_PROMPT,
     MOBILE_EXECUTOR_PROMPT,
-    REPORTER_PROMPT,
 )
 from .tools.web_tools import WEB_TOOLS
 from .tools.api_tools import API_TOOLS
@@ -52,7 +51,6 @@ class AgentOrchestrator:
         ├── Web Executor Agent
         ├── API Executor Agent
         ├── Mobile Executor Agent
-        └── Reporter Agent
 
     Each specialist agent is wrapped as a Strands @tool and provided to
     the supervisor, enabling it to delegate tasks naturally.
@@ -138,19 +136,6 @@ class AgentOrchestrator:
             description="Executes mobile app tests using Appium",
         )
 
-        # ---- Reporter Agent ----
-        self.reporter = Agent(
-            system_prompt=REPORTER_PROMPT,
-            model=self.model,
-            tools=COMMON_TOOLS,
-            conversation_manager=SlidingWindowConversationManager(
-                window_size=15,
-            ),
-            callback_handler=self._create_callback_handler("Reporter"),
-            name="Reporter",
-            description="Generates comprehensive test reports from execution results",
-        )
-
         # ---- Create supervisor tools (wrapping specialist agents) ----
 
         # Capture references for closures
@@ -158,7 +143,6 @@ class AgentOrchestrator:
         web_executor = self.web_executor
         api_executor = self.api_executor
         mobile_executor = self.mobile_executor
-        reporter = self.reporter
 
         @tool
         def plan_tests(objective: str) -> str:
@@ -229,25 +213,8 @@ class AgentOrchestrator:
             result = mobile_executor(plan)
             return str(result)
 
-        @tool
-        def generate_report(execution_results: str) -> str:
-            """Delegates report generation to the Reporter agent.
-
-            Use this tool after test execution to generate a comprehensive
-            test report with findings, evidence references, and recommendations.
-
-            Args:
-                execution_results: All execution results to analyze and report on.
-
-            Returns:
-                Structured test report.
-            """
-            logger.info("Supervisor → Reporter")
-            result = reporter(execution_results)
-            return str(result)
-
         # ---- Supervisor Agent ----
-        supervisor_tools = [plan_tests, generate_report]
+        supervisor_tools = [plan_tests]
 
         # Add executor tools based on available libraries
         if "SeleniumLibrary" in self.available_libraries:
@@ -296,8 +263,8 @@ Max Iterations: {max_iterations}
 Instructions:
 1. Start by delegating test planning to the Test Planner.
 2. Execute the plan using the appropriate executor ({test_mode} mode).
-3. After execution, delegate to the Reporter for a final report.
-4. Return the final report.
+3. Return a brief completion status (1-2 sentences). Do NOT generate a standalone report.
+   The official report is provided by Robot Framework's built-in log/report.
 """
         logger.info(
             "Starting agentic test: mode=%s, max_iter=%d",
@@ -337,8 +304,8 @@ Instructions:
    - Try unexpected inputs and actions
    - Test error handling and edge cases
    - Look for UI/UX issues
-3. Document all findings with evidence.
-4. Generate a comprehensive exploration report.
+3. Document findings with evidence in your actions.
+4. Return a brief completion status (1-2 sentences). Do NOT generate a standalone report.
 """
         logger.info("Starting exploratory test: focus=%s", focus)
         result = self.supervisor(prompt)

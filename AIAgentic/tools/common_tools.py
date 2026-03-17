@@ -204,6 +204,8 @@ def _log_agentic_step_to_rf(
     screenshot_path: str = None,
     assertion_message: str = None,
     error_message: str = None,
+    high_level_step_number: Optional[int] = None,
+    high_level_step_description: str = None,
 ) -> None:
     """Emit an agentic step as a Robot Framework keyword entry."""
     try:
@@ -217,6 +219,13 @@ def _log_agentic_step_to_rf(
             error_message or "",
             screenshot_path or "",
         ]
+        if high_level_step_number is not None or high_level_step_description:
+            args.extend(
+                [
+                    str(high_level_step_number or ""),
+                    high_level_step_description or "",
+                ]
+            )
         if status in (StepStatus.FAILED, StepStatus.ERROR):
             bi.run_keyword_and_ignore_error("Agentic Step", *args)
         else:
@@ -228,6 +237,41 @@ def _log_agentic_step_to_rf(
         )
     except Exception as exc:
         logger.debug("Unable to log agentic step to RF: %s", exc)
+
+
+def _log_high_level_step_to_rf(step_number: int, step_description: str) -> None:
+    """Emit a high-level step marker into the RF log."""
+    try:
+        bi = BuiltIn()
+        bi.run_keyword("Agentic High Level Step", str(step_number), step_description or "")
+    except RobotNotRunningError:
+        rf_logger.info(f"[HIGH LEVEL STEP] {step_number}. {step_description}")
+    except Exception as exc:
+        logger.debug("Unable to log high-level step to RF: %s", exc)
+
+
+def _resolve_high_level_step_description(
+    session, step_number: int, step_description: str
+) -> str:
+    if session and session.high_level_steps:
+        if 1 <= step_number <= len(session.high_level_steps):
+            return session.high_level_steps[step_number - 1]
+    return step_description or ""
+
+
+def _set_high_level_step(
+    session, step_number: int, step_description: str, source: str = "tool"
+) -> bool:
+    if session:
+        if (
+            session.current_high_level_step == step_number
+            and session.current_high_level_step_description == step_description
+        ):
+            return False
+        session.current_high_level_step = step_number
+        session.current_high_level_step_description = step_description
+    _log_high_level_step_to_rf(step_number, step_description)
+    return True
 
 
 def _is_sensitive_key(name: str) -> bool:
@@ -327,6 +371,13 @@ def _record_tool_step(
     error_message: str = None,
 ) -> None:
     session = get_active_session()
+    if session and session.high_level_steps and session.current_high_level_step is None:
+        _set_high_level_step(
+            session=session,
+            step_number=1,
+            step_description=session.high_level_steps[0],
+            source="auto",
+        )
     if session:
         record_step_impl(
             session=session,
@@ -346,6 +397,8 @@ def _record_tool_step(
         screenshot_path=screenshot_path,
         assertion_message=assertion_message,
         error_message=error_message,
+        high_level_step_number=session.current_high_level_step if session else None,
+        high_level_step_description=session.current_high_level_step_description if session else None,
     )
 
 
@@ -434,6 +487,13 @@ def record_step(
     step_status = _normalize_step_status(status)
     duration = _coerce_float(duration_ms)
     session = get_active_session()
+    if session and session.high_level_steps and session.current_high_level_step is None:
+        _set_high_level_step(
+            session=session,
+            step_number=1,
+            step_description=session.high_level_steps[0],
+            source="auto",
+        )
     if session:
         record_step_impl(
             session=session,
@@ -453,8 +513,44 @@ def record_step(
         screenshot_path=screenshot_path,
         assertion_message=assertion_message,
         error_message=error_message,
+        high_level_step_number=session.current_high_level_step if session else None,
+        high_level_step_description=session.current_high_level_step_description if session else None,
     )
     return f"Recorded step: {action} - {description} ({step_status.value})"
+
+
+@tool
+def start_high_level_step(step_number: str, step_description: str = "") -> str:
+    """Starts a user-defined high-level test step for reporting.
+
+    Args:
+        step_number: 1-based high-level step index.
+        step_description: Optional step text. If a session-defined list exists,
+            the stored step text overrides this value.
+
+    Returns:
+        Confirmation message.
+    """
+    try:
+        number = int(step_number)
+    except (TypeError, ValueError):
+        return f"ERROR: step_number must be an integer, got '{step_number}'"
+
+    session = get_active_session()
+    description = _resolve_high_level_step_description(
+        session=session,
+        step_number=number,
+        step_description=step_description,
+    )
+    changed = _set_high_level_step(
+        session=session,
+        step_number=number,
+        step_description=description,
+        source="tool",
+    )
+    if not changed:
+        return f"High-level step {number} already active"
+    return f"High-level step {number}: {description}"
 
 # ---------------------------------------------------------------------------
 # Timing
@@ -574,6 +670,7 @@ COMMON_TOOLS = [
     log_message,
     log_step_result,
     record_step,
+    start_high_level_step,
     sleep_seconds,
     parse_json,
     get_current_timestamp,

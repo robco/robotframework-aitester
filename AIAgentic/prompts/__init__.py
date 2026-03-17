@@ -23,7 +23,7 @@ Each module defines the system prompt for one specialist agent:
 - web_executor: Executes Selenium-based web tests
 - api_executor: Executes REST API tests
 - mobile_executor: Executes Appium-based mobile tests
-- reporter: Synthesizes test results
+
 """
 
 from .supervisor import SUPERVISOR_SYSTEM_PROMPT

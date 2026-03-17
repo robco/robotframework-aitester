@@ -22,9 +22,12 @@ such as Run Agentic Test, Run Agentic Exploration, and Run Agentic API Test
 that testers invoke from .robot files.
 """
 
+import html
 import logging
 import os
-from typing import Any, Dict, Optional
+import re
+import shutil
+from typing import Any, Dict, Optional, List, Tuple
 
 from robot.api.deco import keyword
 from robot.api import logger as rf_logger
@@ -39,7 +42,6 @@ from .executor import (
     create_session,
     set_active_session,
 )
-from .reporter import TestReporter
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +96,7 @@ class AIAgentic:
             headless: Run browser in headless mode. Default False.
             screenshot_on_action: Capture screenshots after actions. Default True.
             verbose: Enable verbose agent logging. Default False.
-            report_formats: Comma-separated report formats (text, json, html, junit).
+            report_formats: Deprecated (ignored). RF built-in reporting is used.
             timeout_seconds: Session timeout in seconds. Default 600 (10 min).
             max_cost_usd: Maximum session cost in USD. None for unlimited.
         """
@@ -115,14 +117,13 @@ class AIAgentic:
         self.headless = headless
         self.screenshot_on_action = screenshot_on_action
         self.verbose = verbose
-        self.report_formats = [f.strip() for f in report_formats.split(",")]
+        self.report_formats = [f.strip() for f in report_formats.split(",") if f.strip()]
         self.timeout_seconds = float(timeout_seconds)
         self.max_cost_usd = float(max_cost_usd) if max_cost_usd else None
 
         # Lazy-initialized components
         self._orchestrator = None
         self._genai_provider = None
-        self._reporter = None
         self._safety_guard = None
 
         logger.info(
@@ -172,9 +173,6 @@ class AIAgentic:
                 available_libraries=available_libs,
                 verbose=self.verbose,
             )
-
-            # Initialize reporter
-            self._reporter = TestReporter()
 
             # Initialize safety guard
             self._safety_guard = SafetyGuard(
@@ -373,45 +371,249 @@ class AIAgentic:
             return f"{app_context}\n\n{start_state}"
         return start_state
 
-    def _start_session(self, objective: str, app_context: str, test_mode: str, max_iterations: int):
+    @staticmethod
+    def _escape_html(text: str) -> str:
+        return html.escape(str(text), quote=False)
+
+    @staticmethod
+    def _parse_numbered_steps(text: str) -> List[str]:
+        """Parse numbered steps (1., 2), 3.) from free-form text."""
+        if not text:
+            return []
+        steps = []
+        current = None
+        for line in str(text).splitlines():
+            match = re.match(r"^\s*(\d+)[\.\)]\s+(.*)$", line)
+            if match:
+                if current is not None:
+                    steps.append(current.rstrip())
+                current = match.group(2).strip()
+                continue
+            if current is not None and line.strip():
+                if re.match(r"^\s*[-*]\s+", line) or line.startswith(" "):
+                    current += "\n" + line.strip()
+                else:
+                    current += " " + line.strip()
+        if current is not None:
+            steps.append(current.rstrip())
+        return steps
+
+    def _extract_user_defined_steps(
+        self,
+        test_objective: str,
+        test_steps: Optional[str],
+    ) -> Tuple[str, List[str], Optional[str]]:
+        def normalize_steps(value):
+            if value is None:
+                return None
+            if isinstance(value, (list, tuple)):
+                return "\n".join(f"{idx + 1}. {item}" for idx, item in enumerate(value))
+            return str(value)
+
+        steps_text = None
+        if test_steps and str(test_steps).strip():
+            steps_text = normalize_steps(test_steps)
+        else:
+            try:
+                candidate = BuiltIn().get_variable_value("${TEST_STEPS}")
+            except (RuntimeError, RobotNotRunningError):
+                candidate = None
+            normalized = normalize_steps(candidate)
+            if normalized and normalized.strip():
+                steps_text = normalized
+
+        parsed_source = steps_text if steps_text else test_objective
+        steps = self._parse_numbered_steps(parsed_source)
+
+        objective = test_objective
+        if steps_text and steps_text not in test_objective:
+            objective = f"{test_objective.rstrip()}\n\n{steps_text.strip()}"
+        return objective, steps, steps_text
+
+    def _log_user_defined_steps(self, steps: List[str]) -> None:
+        if not steps:
+            return
+        items = []
+        for step in steps:
+            safe = self._escape_html(step).replace("\n", "<br/>")
+            items.append(f"<li>{safe}</li>")
+        html_block = (
+            '<div style="font-family:Segoe UI,Arial,sans-serif;'
+            'background:#f8f9fa;padding:10px 12px;border-radius:6px;'
+            'border:1px solid #e2e6ea;margin:6px 0;">'
+            '<b>User-defined Test Steps</b>'
+            f"<ol style=\"margin:6px 0 0 18px;\">{''.join(items)}</ol>"
+            "</div>"
+        )
+        rf_logger.info(html_block, html=True)
+
+    def _ensure_screenshot_in_output(self, screenshot_path: str) -> Optional[str]:
+        if not screenshot_path:
+            return None
+        filename = os.path.basename(screenshot_path)
+        try:
+            output_dir = BuiltIn().get_variable_value("${OUTPUT_DIR}")
+        except RobotNotRunningError:
+            output_dir = os.getcwd()
+        if not output_dir:
+            output_dir = os.getcwd()
+        try:
+            target = os.path.join(output_dir, filename)
+            if os.path.exists(screenshot_path) and os.path.abspath(screenshot_path) != os.path.abspath(target):
+                shutil.copy2(screenshot_path, target)
+        except Exception as exc:
+            logger.debug("Unable to copy screenshot to output dir: %s", exc)
+        return filename
+
+    def _build_screenshot_html(self, filename: str) -> str:
+        if not filename:
+            return ""
+        return (
+            '<div style="margin-top:6px;">'
+            f'<a href="{filename}">'
+            f'<img src="{filename}" style="max-width:520px; border:1px solid #ddd; border-radius:4px;">'
+            "</a>"
+            "</div>"
+        )
+
+    def _start_session(
+        self,
+        objective: str,
+        app_context: str,
+        test_mode: str,
+        max_iterations: int,
+        high_level_steps: Optional[List[str]] = None,
+    ):
         """Create and register an active session for step recording."""
         session = create_session(
             objective=objective,
             app_context=app_context,
             test_mode=test_mode,
             max_iterations=max_iterations,
+            high_level_steps=high_level_steps,
         )
         set_active_session(session)
         return session
 
-    def _log_saved_reports(self, saved_reports):
-        """Log saved report files to RF output."""
-        if not saved_reports:
-            return
+    def _log_basic_summary(self, session):
+        """Log a brief session summary into Robot Framework log."""
         try:
-            links = []
-            for fmt, path in saved_reports.items():
-                filename = os.path.basename(path)
-                links.append(f'<a href="{filename}">{fmt}</a>')
-            html = "Saved reports: " + " | ".join(links)
-            rf_logger.info(html, html=True)
-        except Exception:
-            logger.info("Saved reports: %s", saved_reports)
+            status = session.status.value.upper()
+            html_summary = (
+                '<div style="font-family:Segoe UI,Arial,sans-serif;'
+                'background:#f8f9fa;padding:10px 12px;border-radius:6px;'
+                'border:1px solid #e2e6ea;margin:6px 0;">'
+                f"<b>Agentic Session Summary</b><br/>"
+                f"Status: <b>{status}</b><br/>"
+                f"Steps: {session.passed_steps}/{session.total_steps} passed<br/>"
+                f"Duration: {session.duration_seconds:.1f}s<br/>"
+                "</div>"
+            )
+            rf_logger.info(html_summary, html=True)
+        except Exception as exc:
+            logger.debug("Unable to log session summary: %s", exc)
+
+    def _log_high_level_summary(self, session):
+        """Log high-level steps with their executed agentic steps."""
+        if not session.high_level_steps:
+            return
+
+        groups = {i + 1: [] for i in range(len(session.high_level_steps))}
+        unassigned = []
+        for step in session.steps:
+            num = step.high_level_step_number
+            if num in groups:
+                groups[num].append(step)
+            else:
+                unassigned.append(step)
+
+        parts = [
+            '<div style="font-family:Segoe UI,Arial,sans-serif;'
+            'background:#ffffff;padding:10px 12px;border-radius:6px;'
+            'border:1px solid #e2e6ea;margin:8px 0;">',
+            "<b>High-Level Step Execution</b>",
+        ]
+
+        status_colors = {
+            "passed": "#2e7d32",
+            "failed": "#c62828",
+            "error": "#c62828",
+            "skipped": "#6c757d",
+        }
+
+        for idx, title in enumerate(session.high_level_steps, start=1):
+            safe_title = self._escape_html(title).replace("\n", "<br/>")
+            parts.append(
+                f'<div style="margin:8px 0 4px 0;"><b>Step {idx}:</b> {safe_title}</div>'
+            )
+            steps = groups.get(idx, [])
+            if not steps:
+                parts.append('<div style="color:#6c757d;font-style:italic;margin-left:12px;">No agentic steps recorded.</div>')
+                continue
+            parts.append('<ul style="margin:6px 0 10px 20px;">')
+            for step in steps:
+                status = step.status.value
+                color = status_colors.get(status, "#6c757d")
+                action = self._escape_html(step.action)
+                desc = self._escape_html(step.description)
+                item = (
+                    "<li>"
+                    f'<span style="display:inline-block;min-width:64px;color:{color};font-weight:600;">'
+                    f"{status.upper()}</span> "
+                    f"{action} - {desc}"
+                )
+                if step.screenshot_path:
+                    filename = self._ensure_screenshot_in_output(step.screenshot_path)
+                    if filename:
+                        item += f'<div style="margin:6px 0 0 28px;">{self._build_screenshot_html(filename)}</div>'
+                item += "</li>"
+                parts.append(item)
+            parts.append("</ul>")
+
+        if unassigned:
+            parts.append('<div style="margin:8px 0 4px 0;"><b>Unassigned Steps</b></div>')
+            parts.append('<ul style="margin:6px 0 10px 20px;">')
+            for step in unassigned:
+                status = step.status.value
+                color = status_colors.get(status, "#6c757d")
+                action = self._escape_html(step.action)
+                desc = self._escape_html(step.description)
+                parts.append(
+                    "<li>"
+                    f'<span style="display:inline-block;min-width:64px;color:{color};font-weight:600;">'
+                    f"{status.upper()}</span> "
+                    f"{action} - {desc}"
+                    "</li>"
+                )
+            parts.append("</ul>")
+
+        parts.append("</div>")
+        rf_logger.info("".join(parts), html=True)
 
     def _finalize_session(self, session, error: Exception = None):
-        """Finalize session status and publish reports."""
+        """Finalize session status and publish RF log summaries."""
         if error:
             session.errors.append(str(error))
             session.finalize(SessionStatus.FAILED)
         else:
             session.finalize()
-        if self._reporter:
-            saved = self._reporter.save_reports(
-                session=session,
-                formats=self.report_formats,
-            )
-            self._reporter.log_to_rf(session)
-            self._log_saved_reports(saved)
+        self._log_high_level_summary(session)
+        self._log_basic_summary(session)
+
+    @keyword("Agentic High Level Step")
+    def agentic_high_level_step(self, step_number: str, step_description: str = "") -> str:
+        """Log a high-level step marker into RF logs."""
+        safe_desc = self._escape_html(step_description).replace("\n", "<br/>")
+        html_block = (
+            '<div style="font-family:Segoe UI,Arial,sans-serif;'
+            'background:#eef4ff;padding:8px 10px;border-radius:6px;'
+            'border:1px solid #d6e4ff;margin:6px 0;">'
+            f"<b>High-Level Step {step_number}</b><br/>"
+            f"{safe_desc}"
+            "</div>"
+        )
+        rf_logger.info(html_block, html=True)
+        return f"High-Level Step {step_number}: {step_description}"
 
     @keyword("Agentic Step")
     def agentic_step(
@@ -423,6 +625,8 @@ class AIAgentic:
         assertion_message: str = "",
         error_message: str = "",
         screenshot_path: str = "",
+        high_level_step_number: str = "",
+        high_level_step_description: str = "",
     ) -> str:
         """Log a single agentic step as a keyword in RF logs.
 
@@ -432,20 +636,31 @@ class AIAgentic:
         status_upper = str(status).strip().upper()
         duration_label = f"{duration_ms}ms" if duration_ms else ""
 
+        safe_action = self._escape_html(action)
+        safe_description = self._escape_html(description)
+        safe_assertion = self._escape_html(assertion_message) if assertion_message else ""
+        safe_error = self._escape_html(error_message) if error_message else ""
+
         lines = [
-            f"<b>Action:</b> {action}",
-            f"<b>Description:</b> {description}",
+            f"<b>Action:</b> {safe_action}",
+            f"<b>Description:</b> {safe_description}",
             f"<b>Status:</b> {status_upper}",
         ]
+        if high_level_step_number or high_level_step_description:
+            safe_hl = self._escape_html(high_level_step_description).replace("\n", "<br/>")
+            prefix = f"{high_level_step_number}. " if high_level_step_number else ""
+            lines.append(f"<b>High-Level Step:</b> {prefix}{safe_hl}")
         if duration_label:
             lines.append(f"<b>Duration:</b> {duration_label}")
         if assertion_message:
-            lines.append(f"<b>Assertion:</b> {assertion_message}")
+            lines.append(f"<b>Assertion:</b> {safe_assertion}")
         if error_message:
-            lines.append(f"<b>Error:</b> {error_message}")
+            lines.append(f"<b>Error:</b> {safe_error}")
         if screenshot_path:
-            filename = os.path.basename(screenshot_path)
-            lines.append(f'<b>Screenshot:</b> <a href="{filename}">{filename}</a>')
+            filename = self._ensure_screenshot_in_output(screenshot_path)
+            if filename:
+                lines.append(f'<b>Screenshot:</b> <a href="{filename}">{filename}</a>')
+                lines.append(self._build_screenshot_html(filename))
 
         rf_logger.info("<br/>".join(lines), html=True)
 
@@ -462,6 +677,7 @@ class AIAgentic:
         app_context: str = "",
         max_iterations: int = None,
         test_mode: str = None,
+        test_steps: str = None,
     ) -> str:
         """Runs an autonomous AI agentic test based on the given objective.
 
@@ -475,6 +691,7 @@ class AIAgentic:
                 (e.g., "E-commerce web application with email/password login").
             max_iterations: Override max agent iterations for this run.
             test_mode: Override test mode for this run (web, api, mobile).
+            test_steps: Optional user-defined high-level steps (numbered list).
 
         Returns:
             Structured test report as a string.
@@ -487,26 +704,33 @@ class AIAgentic:
         """
         self._ensure_orchestrator()
 
+        objective, high_level_steps, _ = self._extract_user_defined_steps(
+            test_objective=test_objective,
+            test_steps=test_steps,
+        )
         mode = test_mode or self.test_mode
         iters = int(max_iterations) if max_iterations else self.max_iterations
         start_state = self._build_start_state_summary(mode)
         app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
-            objective=test_objective,
+            objective=objective,
             app_context=app_context,
             test_mode=mode,
             max_iterations=iters,
+            high_level_steps=high_level_steps,
         )
 
         rf_logger.info(
             f"Starting agentic test: mode={mode}, max_iterations={iters}",
         )
-        rf_logger.info(f"Objective: {test_objective}")
+        rf_logger.info(f"Objective: {objective}")
         rf_logger.info(f"App context: {app_context}")
+        if high_level_steps:
+            self._log_user_defined_steps(high_level_steps)
 
         try:
             result = self._orchestrator.run(
-                objective=test_objective,
+                objective=objective,
                 app_context=app_context,
                 max_iterations=iters,
                 test_mode=mode,
@@ -601,6 +825,7 @@ class AIAgentic:
         base_url: str = None,
         api_spec_url: str = None,
         max_iterations: int = None,
+        test_steps: str = None,
     ) -> str:
         """Runs an autonomous AI agentic API test.
 
@@ -613,6 +838,7 @@ class AIAgentic:
             base_url: API base URL (used as context for the agent).
             api_spec_url: Optional URL to OpenAPI/Swagger specification.
             max_iterations: Override max agent iterations for this run.
+            test_steps: Optional user-defined high-level steps (numbered list).
 
         Returns:
             API test report as a string.
@@ -625,6 +851,10 @@ class AIAgentic:
         """
         self._ensure_orchestrator()
 
+        objective, high_level_steps, _ = self._extract_user_defined_steps(
+            test_objective=test_objective,
+            test_steps=test_steps,
+        )
         iters = int(max_iterations) if max_iterations else self.max_iterations
 
         # Build app context from API details
@@ -635,17 +865,20 @@ class AIAgentic:
             app_context += f" (OpenAPI spec: {api_spec_url})"
 
         session = self._start_session(
-            objective=test_objective,
+            objective=objective,
             app_context=app_context,
             test_mode="api",
             max_iterations=iters,
+            high_level_steps=high_level_steps,
         )
 
         rf_logger.info(f"Starting agentic API test: {app_context}")
+        if high_level_steps:
+            self._log_user_defined_steps(high_level_steps)
 
         try:
             result = self._orchestrator.run(
-                objective=test_objective,
+                objective=objective,
                 app_context=app_context,
                 max_iterations=iters,
                 test_mode="api",
@@ -673,6 +906,7 @@ class AIAgentic:
         test_objective: str,
         app_context: str = "",
         max_iterations: int = None,
+        test_steps: str = None,
     ) -> str:
         """Runs an autonomous AI agentic mobile app test.
 
@@ -682,6 +916,7 @@ class AIAgentic:
             test_objective: Natural language description of what to test.
             app_context: Description of the mobile app under test.
             max_iterations: Override max agent iterations for this run.
+            test_steps: Optional user-defined high-level steps (numbered list).
 
         Returns:
             Mobile test report as a string.
@@ -693,6 +928,10 @@ class AIAgentic:
         """
         self._ensure_orchestrator()
 
+        objective, high_level_steps, _ = self._extract_user_defined_steps(
+            test_objective=test_objective,
+            test_steps=test_steps,
+        )
         iters = int(max_iterations) if max_iterations else self.max_iterations
 
         rf_logger.info("Starting agentic mobile test")
@@ -700,15 +939,18 @@ class AIAgentic:
         start_state = self._build_start_state_summary("mobile")
         app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
-            objective=test_objective,
+            objective=objective,
             app_context=app_context,
             test_mode="mobile",
             max_iterations=iters,
+            high_level_steps=high_level_steps,
         )
+        if high_level_steps:
+            self._log_user_defined_steps(high_level_steps)
 
         try:
             result = self._orchestrator.run(
-                objective=test_objective,
+                objective=objective,
                 app_context=app_context,
                 max_iterations=iters,
                 test_mode="mobile",

@@ -27,6 +27,10 @@ Your responsibilities:
 4. Prioritize scenarios (critical, high, medium, low)
 5. Return a structured JSON test plan
 
+If the objective includes explicit user-defined numbered "Test Steps":
+- Create a single scenario that uses those steps verbatim and in order.
+- Do NOT add, reorder, or paraphrase those steps.
+
 Output format - return a JSON object with this structure:
 {
   "scenarios": [

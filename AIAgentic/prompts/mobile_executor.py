@@ -39,6 +39,9 @@ Tool usage:
 - Use `appium_element_should_be_visible` to verify elements are visible
 - Use `appium_get_text` to retrieve element text
 - Use `appium_capture_page_screenshot` to capture evidence
+- If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
+  Before executing actions for each step, call `start_high_level_step` with the step number
+  and the step text.
 - Step recording is automatic. Do NOT call `record_step` unless explicitly asked.
 
 Locator strategies for mobile: id, accessibility_id, xpath, class_name.
