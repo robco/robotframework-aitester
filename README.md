@@ -118,6 +118,9 @@ Agentic Exploratory Testing
     [Teardown]    Close All Browsers
 ```
 
+The browser opened by `Open Browser` is reused by the agent. If a session is
+already active, AIAgentic will reuse it and refuse to open a new one.
+
 ### API Testing
 
 ```robot
@@ -227,6 +230,28 @@ Library    AIAgentic
 If you import SeleniumLibrary/RequestsLibrary/AppiumLibrary with an alias,
 pass the corresponding `*_library` parameter so agentic tools attach to the
 already-opened session.
+
+### Session Reuse (No New Browsers/Apps)
+
+If an active Selenium or Appium session is detected, AIAgentic **reuses it**
+and **refuses to open a new session on a different device**. This prevents
+cases like opening a desktop browser when an Android Appium browser is already
+running. Make sure the existing session is open before calling `Run Agentic*`,
+and set `selenium_library` / `appium_library` if you imported those libraries
+with aliases.
+
+```robot
+*** Settings ***
+Library    SeleniumLibrary    WITH NAME    Web
+Library    AIAgentic    platform=OpenAI    selenium_library=Web
+
+*** Test Cases ***
+Reuse Existing Web Session
+    Open Browser    https://example.com    chrome
+    ${status}=    Run Agentic Test
+    ...    test_objective=Smoke test the landing page
+    Log    ${status}
+```
 
 ## Keywords
 

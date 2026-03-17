@@ -5,6 +5,8 @@ Documentation     Example: AI Agentic Mobile App Testing with AppiumLibrary
 ...               to autonomously test a mobile application. The AI agent
 ...               designs mobile test scenarios, performs touch interactions,
 ...               and logs results into the built-in Robot Framework report.
+...               The app is opened in Suite Setup; AIAgentic will reuse the
+...               existing session and will not open a new one.
 ...
 ...               Prerequisites:
 ...               - Appium server running (default: http://localhost:4723)

@@ -401,6 +401,43 @@ class AIAgentic:
         return ""
 
     @staticmethod
+    def _has_active_start_state(start_state: str) -> bool:
+        """Return True if start-state summary reports an active session."""
+        if not start_state:
+            return False
+        lowered = start_state.lower()
+        if "active browser session detected" in lowered:
+            return "no active browser session detected" not in lowered
+        if "active mobile session detected" in lowered:
+            return "no active mobile session detected" not in lowered
+        return False
+
+    def _resolve_start_state_and_reuse(self, test_mode: str) -> tuple[str, bool]:
+        """Resolve start-state summary and reuse flag for a run."""
+        start_state = self._build_start_state_summary(test_mode)
+        reuse_existing_session = self._has_active_start_state(start_state)
+
+        other_mode = None
+        mode = (test_mode or "").strip().lower()
+        if mode == "web":
+            other_mode = "mobile"
+        elif mode == "mobile":
+            other_mode = "web"
+
+        if other_mode:
+            other_state = self._build_start_state_summary(other_mode)
+            other_active = self._has_active_start_state(other_state)
+            if other_active and not reuse_existing_session:
+                reuse_existing_session = True
+                start_state = (
+                    "Start State: Active session detected on another device/app. "
+                    "Reuse the existing session and do NOT open a new one.\n"
+                    f"{other_state}"
+                )
+
+        return start_state, reuse_existing_session
+
+    @staticmethod
     def _merge_app_context(app_context: str, start_state: str) -> str:
         """Merge app context with the detected start state."""
         if not start_state:
@@ -528,6 +565,8 @@ class AIAgentic:
         test_mode: str,
         max_iterations: int,
         high_level_steps: Optional[List[str]] = None,
+        reuse_existing_session: bool = False,
+        start_state_summary: Optional[str] = None,
     ):
         """Create and register an active session for step recording."""
         session = create_session(
@@ -536,6 +575,8 @@ class AIAgentic:
             test_mode=test_mode,
             max_iterations=max_iterations,
             high_level_steps=high_level_steps,
+            reuse_existing_session=reuse_existing_session,
+            start_state_summary=start_state_summary,
         )
         set_active_session(session)
         return session
@@ -757,7 +798,7 @@ class AIAgentic:
         )
         mode = test_mode or self.test_mode
         iters = int(max_iterations) if max_iterations else self.max_iterations
-        start_state = self._build_start_state_summary(mode)
+        start_state, reuse_existing_session = self._resolve_start_state_and_reuse(mode)
         app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
             objective=objective,
@@ -765,6 +806,8 @@ class AIAgentic:
             test_mode=mode,
             max_iterations=iters,
             high_level_steps=high_level_steps,
+            reuse_existing_session=reuse_existing_session,
+            start_state_summary=start_state,
         )
 
         rf_logger.info(
@@ -830,13 +873,17 @@ class AIAgentic:
         self._ensure_orchestrator()
 
         iters = int(max_iterations) if max_iterations else self.max_iterations
-        start_state = self._build_start_state_summary(self.test_mode)
+        start_state, reuse_existing_session = self._resolve_start_state_and_reuse(
+            self.test_mode
+        )
         app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
             objective="EXPLORATORY TESTING",
             app_context=app_context,
             test_mode=self.test_mode,
             max_iterations=iters,
+            reuse_existing_session=reuse_existing_session,
+            start_state_summary=start_state,
         )
 
         rf_logger.info(f"Starting exploratory test: focus={focus_areas}")
@@ -983,7 +1030,9 @@ class AIAgentic:
 
         rf_logger.info("Starting agentic mobile test")
 
-        start_state = self._build_start_state_summary("mobile")
+        start_state, reuse_existing_session = self._resolve_start_state_and_reuse(
+            "mobile"
+        )
         app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
             objective=objective,
@@ -991,6 +1040,8 @@ class AIAgentic:
             test_mode="mobile",
             max_iterations=iters,
             high_level_steps=high_level_steps,
+            reuse_existing_session=reuse_existing_session,
+            start_state_summary=start_state,
         )
         if high_level_steps:
             self._log_user_defined_steps(high_level_steps)

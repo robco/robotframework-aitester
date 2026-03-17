@@ -13,6 +13,7 @@ from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
 from .common_tools import instrument_tool_list
+from ..executor import get_active_session
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +63,30 @@ def appium_open_application(
         Confirmation message.
     """
     al = _get_appium()
+    session = get_active_session()
+    reuse_only = bool(session and session.reuse_existing_session)
+    if reuse_only and session.start_state_summary:
+        summary = session.start_state_summary.lower()
+        if (
+            "active browser session detected" in summary
+            and "active mobile session detected" not in summary
+        ):
+            raise AssertionError(
+                "Active web session detected. Refusing to open a new mobile "
+                "session. Reuse the existing web session."
+            )
     try:
         al._current_application()
         return "Application already open; using existing session"
     except Exception as e:
         logger.debug("No active Appium session detected: %s", e)
+    if reuse_only:
+        raise AssertionError(
+            "Reuse of an existing Appium session is required, but no active "
+            "mobile session was detected. Refusing to open a new session. "
+            "Ensure AppiumLibrary is attached to the existing session (use "
+            "the appium_library alias if needed)."
+        )
     kwargs = {"platformName": platform_name}
     if app:
         kwargs["app"] = app

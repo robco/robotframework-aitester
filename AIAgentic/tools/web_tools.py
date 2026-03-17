@@ -13,6 +13,7 @@ from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
 from .common_tools import instrument_tool_list
+from ..executor import get_active_session
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +54,31 @@ def selenium_open_browser(url: str, browser: str = "chrome") -> str:
         Confirmation message with the navigated URL.
     """
     sl = _get_selenium()
+    session = get_active_session()
+    reuse_only = bool(session and session.reuse_existing_session)
+    if reuse_only and session.start_state_summary:
+        summary = session.start_state_summary.lower()
+        if (
+            "active mobile session detected" in summary
+            and "active browser session detected" not in summary
+        ):
+            raise AssertionError(
+                "Active mobile session detected. Refusing to open a new desktop "
+                "browser session. Reuse the existing mobile session."
+            )
     try:
         if sl.get_browser_ids():
             sl.go_to(url)
             return f"Browser already open; navigated to {url}"
     except Exception as e:
         logger.debug("Unable to detect existing browser session: %s", e)
+    if reuse_only:
+        raise AssertionError(
+            "Reuse of an existing browser session is required, but no active "
+            "browser session was detected. Refusing to open a new browser. "
+            "Ensure SeleniumLibrary is attached to the existing session (use "
+            "the selenium_library alias if needed)."
+        )
     sl.open_browser(url, browser)
     return f"Browser opened and navigated to {url}"
 

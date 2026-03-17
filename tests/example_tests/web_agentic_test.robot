@@ -5,6 +5,8 @@ Documentation     Example: AI Agentic Web Testing with SeleniumLibrary
 ...               to autonomously test a web application. The AI agent
 ...               designs test scenarios, executes browser actions, and
 ...               logs results into the built-in Robot Framework report.
+...               The browser is opened in Suite Setup; AIAgentic will
+...               reuse the existing session and will not open a new one.
 ...
 ...               Prerequisites:
 ...               - ChromeDriver or GeckoDriver installed
@@ -60,9 +62,16 @@ Agentic Exploratory Test
 Agentic Dynamic Content Test
     [Documentation]    AI agent tests pages with dynamic and asynchronous content.
     [Tags]    agentic    web    dynamic
+    ${TEST_STEPS}=    Set Variable
+    ...    Test Steps:
+    ...    1. Navigate to /dynamic_loading/1
+    ...    2. Click Start and wait for "Hello World!" to appear
+    ...    3. Navigate to /dynamic_loading/2
+    ...    4. Click Start and verify "Hello World!" appears
     ${status}=    Run Agentic Test
     ...    test_objective=Navigate to /dynamic_loading/1 and /dynamic_loading/2 pages. Test dynamic loading behavior: click Start button, wait for content to appear, verify the loaded text reads 'Hello World!'.
     ...    app_context=Heroku test application with dynamic loading examples
+    ...    test_steps=${TEST_STEPS}
     ...    max_iterations=30
     Log    ${status}
 

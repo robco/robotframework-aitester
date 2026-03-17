@@ -5,6 +5,7 @@ Documentation     Example: AI Agentic REST API Testing with RequestsLibrary
 ...               to autonomously test REST API endpoints. The AI agent
 ...               designs API test scenarios, sends requests, validates
 ...               responses, and logs results into the built-in Robot Framework report.
+...               The API session is created in Suite Setup and reused by the agent.
 ...
 ...               Prerequisites:
 ...               - OPENAI_API_KEY environment variable set (or use Ollama for local)

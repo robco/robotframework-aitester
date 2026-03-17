@@ -58,6 +58,18 @@ class TestTestSession:
         assert session.max_iterations == 30
         assert session.status == SessionStatus.RUNNING
         assert len(session.session_id) == 8
+        assert session.reuse_existing_session is False
+        assert session.start_state_summary is None
+
+    def test_create_session_reuse_flags(self):
+        session = create_session(
+            "test",
+            "app",
+            reuse_existing_session=True,
+            start_state_summary="Start State: Active",
+        )
+        assert session.reuse_existing_session is True
+        assert session.start_state_summary == "Start State: Active"
 
     def test_session_add_step(self):
         session = create_session("test", "app")

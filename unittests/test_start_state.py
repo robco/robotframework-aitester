@@ -151,3 +151,33 @@ def test_merge_app_context_includes_start_state():
     merged = agentic._merge_app_context("Base context", "Start State: Active")
     assert "Base context" in merged
     assert "Start State: Active" in merged
+
+
+def test_has_active_start_state():
+    agentic = AIAgentic()
+    assert agentic._has_active_start_state(
+        "Start State: Active browser session detected."
+    )
+    assert agentic._has_active_start_state(
+        "Start State: Active mobile session detected."
+    )
+    assert not agentic._has_active_start_state(
+        "Start State: No active browser session detected."
+    )
+
+
+def test_resolve_start_state_prefers_other_when_primary_inactive(monkeypatch):
+    agentic = AIAgentic()
+
+    def fake_build(mode):
+        if mode == "web":
+            return "Start State: No active browser session detected. Start from scratch."
+        if mode == "mobile":
+            return "Start State: Active mobile session detected."
+        return ""
+
+    monkeypatch.setattr(agentic, "_build_start_state_summary", fake_build)
+    start_state, reuse = agentic._resolve_start_state_and_reuse("web")
+    assert reuse is True
+    assert "Active mobile session detected" in start_state
+    assert "do not open a new one" in start_state.lower()

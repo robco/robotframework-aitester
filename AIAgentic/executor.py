@@ -160,6 +160,8 @@ class TestSession:
     high_level_steps: List[str] = field(default_factory=list)
     current_high_level_step: Optional[int] = None
     current_high_level_step_description: Optional[str] = None
+    reuse_existing_session: bool = False
+    start_state_summary: Optional[str] = None
 
     @property
     def duration_seconds(self) -> float:
@@ -424,6 +426,8 @@ def create_session(
     test_mode: str = "web",
     max_iterations: int = 50,
     high_level_steps: Optional[List[str]] = None,
+    reuse_existing_session: bool = False,
+    start_state_summary: Optional[str] = None,
 ) -> TestSession:
     """Factory function to create a new test session.
 
@@ -450,6 +454,8 @@ def create_session(
         test_mode=test_mode,
         max_iterations=max_iterations,
         high_level_steps=high_level_steps or [],
+        reuse_existing_session=reuse_existing_session,
+        start_state_summary=start_state_summary,
     )
 
 
