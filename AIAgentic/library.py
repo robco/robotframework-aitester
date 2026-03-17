@@ -494,6 +494,9 @@ class AIAgentic:
     def _validate_ui_action_coverage(self, session) -> Optional[str]:
         if session.test_mode not in {"web", "mobile"}:
             return None
+        total_actions = session.ui_interactions_total + session.ui_state_checks_total
+        if total_actions == 0:
+            return "No UI tool actions were recorded during this session."
         if not session.high_level_steps:
             return None
         missing = []
@@ -540,11 +543,20 @@ class AIAgentic:
         test_objective: str,
         test_steps: Optional[str],
     ) -> Tuple[str, List[str], Optional[str]]:
+        def normalize_text(value):
+            if value is None:
+                return ""
+            if isinstance(value, (list, tuple)):
+                return "\n".join(str(item) for item in value)
+            return str(value)
+
         def normalize_steps(value):
             if value is None:
                 return None
             if isinstance(value, (list, tuple)):
-                return "\n".join(f"{idx + 1}. {item}" for idx, item in enumerate(value))
+                return "\n".join(
+                    f"{idx + 1}. {item}" for idx, item in enumerate(value)
+                )
             return str(value)
 
         steps_text = None
@@ -559,12 +571,13 @@ class AIAgentic:
             if normalized and normalized.strip():
                 steps_text = normalized
 
-        parsed_source = steps_text if steps_text else test_objective
+        objective_text = normalize_text(test_objective)
+        parsed_source = steps_text if steps_text else objective_text
         steps = self._parse_numbered_steps(parsed_source)
 
-        objective = test_objective
-        if steps_text and steps_text not in test_objective:
-            objective = f"{test_objective.rstrip()}\n\n{steps_text.strip()}"
+        objective = objective_text
+        if steps_text and steps_text not in objective_text:
+            objective = f"{objective_text.rstrip()}\n\n{steps_text.strip()}"
         if steps:
             marker = "USER-DEFINED TEST STEPS (MAIN FLOW, HIGHEST PRIORITY)"
             if marker.lower() not in objective.lower():

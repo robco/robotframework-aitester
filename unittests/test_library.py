@@ -30,3 +30,19 @@ def test_agentic_step_fail_raises_assertion():
             assertion_message="Validation failed",
         )
     assert "Validation failed" in str(exc.value)
+
+
+def test_extract_user_defined_steps_from_list_objective():
+    agentic = AIAgentic()
+    objective = [
+        "Strictly follow specified test steps.",
+        "1. Click Login",
+        "2. Verify dashboard is visible",
+    ]
+    objective_text, steps, steps_text = agentic._extract_user_defined_steps(
+        test_objective=objective,
+        test_steps=None,
+    )
+    assert steps_text is None
+    assert "1. Click Login" in objective_text
+    assert steps == ["Click Login", "Verify dashboard is visible"]
