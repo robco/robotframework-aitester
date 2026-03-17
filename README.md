@@ -297,6 +297,9 @@ Additional reporting features:
 - Step-level logging via `Agentic Step` with status, duration, assertions, and embedded screenshots
 - High-level grouping when user-defined steps are supplied
 - Screenshots are copied into `${OUTPUT_DIR}` for reliable linking in `log.html`
+- Screenshot files may use any image extension supported by the underlying library (e.g., `.png`, `.jpg`, `.jpeg`).
+- When a screenshot filename is explicitly provided for Selenium/Appium, AIAgentic normalizes it to `.png`
+  to avoid WebDriver warnings about mismatched file types.
 
 ## UI Element Scrolling
 

@@ -37,13 +37,20 @@ def test_normalize_step_status(value, expected):
     assert common_tools._normalize_step_status(value) is expected
 
 
-def test_record_step_records_session(active_session):
+@pytest.mark.parametrize(
+    "screenshot_path,expected_name",
+    [
+        ("/tmp/ss.png", "ss.png"),
+        ("/tmp/ss.jpg", "ss.jpg"),
+    ],
+)
+def test_record_step_records_session(active_session, screenshot_path, expected_name):
     result = common_tools.record_step(
         action="click",
         description="Click button",
         status="PASS",
         duration_ms="12.5",
-        screenshot_path="/tmp/ss.png",
+        screenshot_path=screenshot_path,
         assertion_message="ok",
     )
     assert "Recorded step: click - Click button (passed)" in result
@@ -52,7 +59,7 @@ def test_record_step_records_session(active_session):
     assert step.action == "click"
     assert step.status is StepStatus.PASSED
     assert step.duration_ms == 12.5
-    expected_path = os.path.join(os.getcwd(), "ss.png")
+    expected_path = os.path.join(os.getcwd(), expected_name)
     assert step.screenshot_path == expected_path
     assert step.assertion_message == "ok"
 
@@ -117,6 +124,19 @@ def test_start_high_level_step_sets_session():
         assert session.current_high_level_step_description == "Second"
     finally:
         set_active_session(None)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("/tmp/shot.png", "/tmp/shot.png"),
+        ("/tmp/shot.PNG", "/tmp/shot.PNG"),
+        ("/tmp/shot.jpg", "/tmp/shot.png"),
+        ("/tmp/shot", "/tmp/shot.png"),
+    ],
+)
+def test_normalize_screenshot_filename(value, expected):
+    assert common_tools._normalize_screenshot_filename(value) == expected
 
 
 def test_record_step_auto_starts_high_level_step():

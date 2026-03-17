@@ -372,6 +372,17 @@ def _ensure_screenshot_in_output_dir(screenshot_path: Optional[str]) -> Optional
     return target
 
 
+def _normalize_screenshot_filename(filename: Optional[str]) -> Optional[str]:
+    if not filename:
+        return filename
+    base, ext = os.path.splitext(filename)
+    if not ext:
+        return f"{filename}.png"
+    if ext.lower() != ".png":
+        return f"{base}.png"
+    return filename
+
+
 def _set_high_level_step(
     session, step_number: int, step_description: str, source: str = "tool"
 ) -> bool:

@@ -12,7 +12,7 @@ import logging
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
-from .common_tools import instrument_tool_list
+from .common_tools import instrument_tool_list, _normalize_screenshot_filename
 from ..executor import get_active_session
 
 logger = logging.getLogger(__name__)
@@ -664,7 +664,13 @@ def selenium_capture_page_screenshot(filename: str = None) -> str:
     """
     sl = _get_selenium()
     if filename:
-        path = sl.capture_page_screenshot(filename)
+        normalized = _normalize_screenshot_filename(filename)
+        if normalized != filename:
+            logger.debug(
+                "Normalized screenshot filename to .png to avoid WebDriver warnings: %s",
+                normalized,
+            )
+        path = sl.capture_page_screenshot(normalized)
     else:
         path = sl.capture_page_screenshot()
     return f"Screenshot captured: {path}"
