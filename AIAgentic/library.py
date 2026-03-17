@@ -749,6 +749,18 @@ class AIAgentic:
             "</div>"
         )
 
+    def _log_html_message(self, html_block: str) -> None:
+        """Log HTML content even if log level is temporarily NONE."""
+        try:
+            bi = BuiltIn()
+            old_level = bi.set_log_level("INFO")
+            rf_logger.info(html_block, html=True)
+            bi.set_log_level(old_level)
+        except RobotNotRunningError:
+            rf_logger.info(html_block, html=True)
+        except Exception as exc:
+            logger.debug("Unable to log HTML message: %s", exc)
+
     def _start_session(
         self,
         objective: str,
@@ -788,7 +800,7 @@ class AIAgentic:
                 f"Duration: {session.duration_seconds:.1f}s<br/>"
                 "</div>"
             )
-            rf_logger.info(html_summary, html=True)
+            self._log_html_message(html_summary)
         except Exception as exc:
             logger.debug("Unable to log session summary: %s", exc)
 
@@ -869,7 +881,7 @@ class AIAgentic:
             parts.append("</ul>")
 
         parts.append("</div>")
-        rf_logger.info("".join(parts), html=True)
+        self._log_html_message("".join(parts))
 
     def _finalize_session(self, session, error: Exception = None):
         """Finalize session status and publish RF log summaries."""
@@ -903,7 +915,7 @@ class AIAgentic:
             f"{safe_desc}"
             "</div>"
         )
-        rf_logger.info(html_block, html=True)
+        self._log_html_message(html_block)
         return f"High-Level Step {step_number}: {step_description}"
 
     @keyword("Agentic Step")
@@ -953,7 +965,7 @@ class AIAgentic:
                 lines.append(f'<b>Screenshot:</b> <a href="{filename}">{filename}</a>')
                 lines.append(self._build_screenshot_html(filename))
 
-        rf_logger.info("<br/>".join(lines), html=True)
+        self._log_html_message("<br/>".join(lines))
 
         if status_upper in ("FAIL", "FAILED", "ERROR"):
             failure_detail = error_message or assertion_message or f"{action}: {description}"
