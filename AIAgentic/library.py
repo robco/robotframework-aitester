@@ -744,7 +744,7 @@ class AIAgentic:
         return (
             '<div style="margin-top:6px;">'
             f'<a href="{filename}">'
-            f'<img src="{filename}" style="max-width:520px; border:1px solid #ddd; border-radius:4px;">'
+            f'<img src="{filename}" width="800px">'
             "</a>"
             "</div>"
         )
@@ -754,7 +754,7 @@ class AIAgentic:
         try:
             bi = BuiltIn()
             old_level = bi.set_log_level("INFO")
-            rf_logger.info(html_block, html=True)
+            bi.log(html_block, level="INFO", html=True)
             bi.set_log_level(old_level)
         except RobotNotRunningError:
             rf_logger.info(html_block, html=True)
