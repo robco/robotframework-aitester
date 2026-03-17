@@ -548,7 +548,9 @@ class AIAgentic:
             )
             steps = groups.get(idx, [])
             if not steps:
-                parts.append('<div style="color:#6c757d;font-style:italic;margin-left:12px;">No agentic steps recorded.</div>')
+                parts.append(
+                  '<div style="color:#6c757d;font-style:italic;margin-left:12px;">No agentic steps recorded.</div>'
+                )
                 continue
             parts.append('<ul style="margin:6px 0 10px 20px;">')
             for step in steps:
