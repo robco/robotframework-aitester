@@ -46,3 +46,19 @@ def test_extract_user_defined_steps_from_list_objective():
     assert steps_text is None
     assert "1. Click Login" in objective_text
     assert steps == ["Click Login", "Verify dashboard is visible"]
+
+
+def test_validate_user_step_completion_fails_on_missing():
+    agentic = AIAgentic()
+    from AIAgentic.executor import create_session
+
+    session = create_session(
+        objective="Test",
+        app_context="App",
+        test_mode="web",
+        max_iterations=1,
+        high_level_steps=["Step A", "Step B"],
+    )
+    msg = agentic._validate_user_step_completion(session)
+    assert msg is not None
+    assert "No recorded actions" in msg

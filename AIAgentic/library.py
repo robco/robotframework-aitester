@@ -39,6 +39,7 @@ from .orchestrator import AgentOrchestrator
 from .executor import (
     SafetyGuard,
     SessionStatus,
+    StepStatus,
     create_session,
     set_active_session,
 )
@@ -580,6 +581,37 @@ class AIAgentic:
             )
         return None
 
+    def _validate_user_step_completion(self, session) -> Optional[str]:
+        if not session.high_level_steps:
+            return None
+        groups = {i + 1: [] for i in range(len(session.high_level_steps))}
+        for step in session.steps:
+            num = step.high_level_step_number
+            if num in groups:
+                groups[num].append(step)
+
+        missing = []
+        not_passed = []
+        for idx, step_text in enumerate(session.high_level_steps, start=1):
+            steps = groups.get(idx, [])
+            if not steps:
+                missing.append(f"{idx}. {step_text}")
+                continue
+            has_pass = any(s.status == StepStatus.PASSED for s in steps)
+            if not has_pass:
+                not_passed.append(f"{idx}. {step_text}")
+
+        if missing or not_passed:
+            parts = ["User-defined steps were not completed successfully."]
+            if missing:
+                parts.append("No recorded actions for:")
+                parts.extend(missing)
+            if not_passed:
+                parts.append("No passed actions for:")
+                parts.extend(not_passed)
+            return "\n".join(parts)
+        return None
+
     @staticmethod
     def _parse_numbered_steps(text: str) -> List[str]:
         """Parse numbered steps (1., 2), 3.) from free-form text."""
@@ -823,13 +855,17 @@ class AIAgentic:
     def _finalize_session(self, session, error: Exception = None):
         """Finalize session status and publish RF log summaries."""
         validation_error = self._validate_ui_action_coverage(session)
+        completion_error = self._validate_user_step_completion(session)
         if error:
             session.errors.append(str(error))
         if validation_error:
             session.errors.append(validation_error)
             rf_logger.error(validation_error)
+        if completion_error:
+            session.errors.append(completion_error)
+            rf_logger.error(completion_error)
 
-        if error or validation_error:
+        if error or validation_error or completion_error:
             session.finalize(SessionStatus.FAILED)
         else:
             session.finalize()
