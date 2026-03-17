@@ -10,7 +10,7 @@ via robotframework-appiumlibrary.
 
 import logging
 from strands import tool
-from robot.libraries.BuiltIn import BuiltIn
+from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
 from .common_tools import instrument_tool_list
 
@@ -19,7 +19,22 @@ logger = logging.getLogger(__name__)
 
 def _get_appium():
     """Get the AppiumLibrary instance from Robot Framework."""
-    return BuiltIn().get_library_instance("AppiumLibrary")
+    bi = BuiltIn()
+    lib_name = "AppiumLibrary"
+    try:
+        override = bi.get_variable_value("${AIAGENTIC_APPIUM_LIBRARY}")
+        if override:
+            lib_name = override
+    except RobotNotRunningError:
+        pass
+    try:
+        return bi.get_library_instance(lib_name)
+    except Exception as exc:
+        raise RuntimeError(
+            f"AppiumLibrary instance '{lib_name}' not found. "
+            "Ensure AppiumLibrary is imported or set appium_library "
+            "when importing AIAgentic."
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

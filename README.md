@@ -18,7 +18,6 @@ Supply a test area, scenario, or high-level test idea for a target application â
 - Browser analysis tools extract interactive elements, page structure, form fields, links, and console errors to guide exploration.
 - Utility tools provide assertions, JSON parsing, timing, RF variable access, and optional AIVision screenshot analysis.
 - RF built-in reporting with embedded screenshots and high-level step grouping when user-defined steps are provided.
-- Optional Robot Framework listener (v3 API) hook for real-time agentic action events.
 
 ## Architecture
 
@@ -219,9 +218,15 @@ Library    AIAgentic
 | `headless`            | False      | Request headless browser mode (driver-dependent) |
 | `screenshot_on_action`| True       | Capture screenshots after actions when supported |
 | `verbose`             | False      | Enable verbose agent logging                  |
-| `report_formats`      | text,json,html | Deprecated (ignored). Use Robot Framework built-in reports |
+| `selenium_library`    | SeleniumLibrary | SeleniumLibrary name/alias for existing sessions |
+| `requests_library`    | RequestsLibrary | RequestsLibrary name/alias for existing sessions |
+| `appium_library`      | AppiumLibrary | AppiumLibrary name/alias for existing sessions |
 | `timeout_seconds`     | 600        | Session timeout in seconds                    |
 | `max_cost_usd`        | None       | Maximum session cost in USD                   |
+
+If you import SeleniumLibrary/RequestsLibrary/AppiumLibrary with an alias,
+pass the corresponding `*_library` parameter so agentic tools attach to the
+already-opened session.
 
 ## Keywords
 
@@ -254,14 +259,15 @@ robotframework-aiagentic uses only Robot Framework v7.4+ built-in reporting
 `Run Agentic*` keywords return a short completion status; review details in the RF log.
 
 When you provide user-defined numbered test steps (via the `test_steps` argument
-or `${TEST_STEPS}` variable), agentic actions are grouped under those steps in
+or `${TEST_STEPS}` variable), those steps are treated as the main flow and
+agentic actions are grouped under them in
 the RF log with embedded screenshots for readability.
 
 Additional reporting features:
 
 - Step-level logging via `Agentic Step` with status, duration, assertions, and embedded screenshots
 - High-level grouping when user-defined steps are supplied
-- Optional listener hook: `robot --listener AIAgentic.reporter.AIAgenticListener tests/`
+- Screenshots are copied into `${OUTPUT_DIR}` for reliable linking in `log.html`
 
 ## Development Roadmap
 

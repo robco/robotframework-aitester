@@ -3,6 +3,7 @@
 
 """Unit tests for common tools module."""
 
+import os
 import pytest
 from strands import tool
 
@@ -51,7 +52,8 @@ def test_record_step_records_session(active_session):
     assert step.action == "click"
     assert step.status is StepStatus.PASSED
     assert step.duration_ms == 12.5
-    assert step.screenshot_path == "/tmp/ss.png"
+    expected_path = os.path.join(os.getcwd(), "ss.png")
+    assert step.screenshot_path == expected_path
     assert step.assertion_message == "ok"
 
 
@@ -68,7 +70,8 @@ def test_instrument_tool_records_success(active_session):
     step = active_session.steps[0]
     assert step.action == "sample_tool"
     assert step.status is StepStatus.PASSED
-    assert step.screenshot_path == "/tmp/shot.png"
+    expected_path = os.path.join(os.getcwd(), "shot.png")
+    assert step.screenshot_path == expected_path
     assert step.assertion_message.startswith("PASS:")
     assert "password=***" in step.description
     assert "secret" not in step.description
@@ -102,3 +105,34 @@ def test_instrument_tool_records_assertion_error(active_session):
     step = active_session.steps[0]
     assert step.status is StepStatus.FAILED
     assert step.error_message == "Boom"
+
+
+def test_start_high_level_step_sets_session():
+    session = create_session("test", "app", high_level_steps=["First", "Second"])
+    set_active_session(session)
+    try:
+        result = common_tools.start_high_level_step("2", "")
+        assert "High-level step 2" in result
+        assert session.current_high_level_step == 2
+        assert session.current_high_level_step_description == "Second"
+    finally:
+        set_active_session(None)
+
+
+def test_record_step_auto_starts_high_level_step():
+    session = create_session("test", "app", high_level_steps=["Step 1"])
+    set_active_session(session)
+    try:
+        common_tools.record_step(
+            action="click",
+            description="Click button",
+            status="PASS",
+            duration_ms="1",
+        )
+        assert session.current_high_level_step == 1
+        assert session.current_high_level_step_description == "Step 1"
+        step = session.steps[0]
+        assert step.high_level_step_number == 1
+        assert step.high_level_step_description == "Step 1"
+    finally:
+        set_active_session(None)

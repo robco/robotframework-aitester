@@ -4,8 +4,7 @@
 """Unit tests for genai module."""
 
 import os
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from AIAgentic.platforms import Platforms
 from AIAgentic.genai import GenAIProvider
 

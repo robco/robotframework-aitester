@@ -3,12 +3,9 @@
 
 """Unit tests for executor module."""
 
-import pytest
 import time
 from AIAgentic.executor import (
     TestStep,
-    TestScenario,
-    TestSession,
     SessionStatus,
     StepStatus,
     SafetyGuard,
@@ -106,7 +103,7 @@ class TestTestSession:
         assert session.status == SessionStatus.ABORTED
 
     def test_session_to_dict(self):
-        session = create_session("Test login", "Web app", "web", 50)
+        session = create_session("Test login", "Web app", "web", 50, high_level_steps=["Step A"])
         session.add_step(TestStep(1, "click", "Click button", StepStatus.PASSED, 100))
         session.finalize()
         data = session.to_dict()
@@ -114,6 +111,7 @@ class TestTestSession:
         assert data["total_steps"] == 1
         assert data["status"] == "completed"
         assert "steps" in data
+        assert data["high_level_steps"] == ["Step A"]
 
     def test_record_step_function(self):
         session = create_session("test", "app")
@@ -122,6 +120,16 @@ class TestTestSession:
         )
         assert step.step_number == 1
         assert session.total_steps == 1
+
+    def test_record_step_includes_high_level(self):
+        session = create_session("test", "app", high_level_steps=["First", "Second"])
+        session.current_high_level_step = 2
+        session.current_high_level_step_description = "Second"
+        step = record_step(
+            session, "click", "Click button", StepStatus.PASSED, 10.0
+        )
+        assert step.high_level_step_number == 2
+        assert step.high_level_step_description == "Second"
 
     def test_session_tracks_screenshots(self):
         session = create_session("test", "app")

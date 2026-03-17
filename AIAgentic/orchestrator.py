@@ -263,6 +263,7 @@ Max Iterations: {max_iterations}
 Instructions:
 1. Start by delegating test planning to the Test Planner.
 2. Execute the plan using the appropriate executor ({test_mode} mode).
+   Execute scenarios in priority order and treat any user-defined steps as the main flow.
 3. Return a brief completion status (1-2 sentences). Do NOT generate a standalone report.
    The official report is provided by Robot Framework's built-in log/report.
 """

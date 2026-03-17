@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import time
+import shutil
 from typing import Any, Iterable, Optional
 from strands import tool
 from strands.tools.decorator import DecoratedFunctionTool
@@ -259,6 +260,25 @@ def _resolve_high_level_step_description(
     return step_description or ""
 
 
+def _ensure_screenshot_in_output_dir(screenshot_path: Optional[str]) -> Optional[str]:
+    if not screenshot_path:
+        return None
+    filename = os.path.basename(screenshot_path)
+    try:
+        output_dir = BuiltIn().get_variable_value("${OUTPUT_DIR}")
+    except RobotNotRunningError:
+        output_dir = os.getcwd()
+    if not output_dir:
+        output_dir = os.getcwd()
+    target = os.path.join(output_dir, filename)
+    try:
+        if os.path.exists(screenshot_path) and os.path.abspath(screenshot_path) != os.path.abspath(target):
+            shutil.copy2(screenshot_path, target)
+    except Exception as exc:
+        logger.debug("Unable to copy screenshot to output dir: %s", exc)
+    return target
+
+
 def _set_high_level_step(
     session, step_number: int, step_description: str, source: str = "tool"
 ) -> bool:
@@ -371,6 +391,7 @@ def _record_tool_step(
     error_message: str = None,
 ) -> None:
     session = get_active_session()
+    normalized_screenshot = _ensure_screenshot_in_output_dir(screenshot_path)
     if session and session.high_level_steps and session.current_high_level_step is None:
         _set_high_level_step(
             session=session,
@@ -385,7 +406,7 @@ def _record_tool_step(
             description=description,
             status=status,
             duration_ms=duration_ms,
-            screenshot_path=screenshot_path,
+            screenshot_path=normalized_screenshot,
             assertion_message=assertion_message,
             error_message=error_message,
         )
@@ -394,7 +415,7 @@ def _record_tool_step(
         description=description,
         status=status,
         duration_ms=duration_ms,
-        screenshot_path=screenshot_path,
+        screenshot_path=normalized_screenshot,
         assertion_message=assertion_message,
         error_message=error_message,
         high_level_step_number=session.current_high_level_step if session else None,
@@ -487,6 +508,7 @@ def record_step(
     step_status = _normalize_step_status(status)
     duration = _coerce_float(duration_ms)
     session = get_active_session()
+    normalized_screenshot = _ensure_screenshot_in_output_dir(screenshot_path)
     if session and session.high_level_steps and session.current_high_level_step is None:
         _set_high_level_step(
             session=session,
@@ -501,7 +523,7 @@ def record_step(
             description=description,
             status=step_status,
             duration_ms=duration,
-            screenshot_path=screenshot_path,
+            screenshot_path=normalized_screenshot,
             assertion_message=assertion_message,
             error_message=error_message,
         )
@@ -510,7 +532,7 @@ def record_step(
         description=description,
         status=step_status,
         duration_ms=duration,
-        screenshot_path=screenshot_path,
+        screenshot_path=normalized_screenshot,
         assertion_message=assertion_message,
         error_message=error_message,
         high_level_step_number=session.current_high_level_step if session else None,

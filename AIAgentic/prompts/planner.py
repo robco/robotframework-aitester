@@ -29,7 +29,9 @@ Your responsibilities:
 
 If the objective includes explicit user-defined numbered "Test Steps":
 - Create a single scenario that uses those steps verbatim and in order.
+- Set its priority to "critical" and treat it as the main flow.
 - Do NOT add, reorder, or paraphrase those steps.
+- Do NOT add extra scenarios in that case.
 
 Output format - return a JSON object with this structure:
 {

@@ -42,6 +42,7 @@ Tool usage:
 - If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
   Before executing actions for each step, call `start_high_level_step` with the step number
   and the step text.
+  Treat these steps as the main flow and do not deviate unless a step fails.
     - Step recording is automatic. Do NOT call `record_step` unless explicitly asked.
 
 Locator strategies: id, name, css, xpath, link_text.

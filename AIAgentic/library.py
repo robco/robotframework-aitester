@@ -83,6 +83,9 @@ class AIAgentic:
         report_formats: str = "text,json,html",
         timeout_seconds: float = 600,
         max_cost_usd: float = None,
+        selenium_library: str = "SeleniumLibrary",
+        requests_library: str = "RequestsLibrary",
+        appium_library: str = "AppiumLibrary",
     ):
         """Initialize the AIAgentic library.
 
@@ -99,6 +102,9 @@ class AIAgentic:
             report_formats: Deprecated (ignored). RF built-in reporting is used.
             timeout_seconds: Session timeout in seconds. Default 600 (10 min).
             max_cost_usd: Maximum session cost in USD. None for unlimited.
+            selenium_library: SeleniumLibrary name or alias (for existing sessions).
+            requests_library: RequestsLibrary name or alias (for existing sessions).
+            appium_library: AppiumLibrary name or alias (for existing sessions).
         """
         # Resolve platform enum
         try:
@@ -117,14 +123,20 @@ class AIAgentic:
         self.headless = headless
         self.screenshot_on_action = screenshot_on_action
         self.verbose = verbose
-        self.report_formats = [f.strip() for f in report_formats.split(",") if f.strip()]
+        # report_formats is deprecated and intentionally ignored to enforce RF built-in reporting only
+        self.report_formats = []
         self.timeout_seconds = float(timeout_seconds)
         self.max_cost_usd = float(max_cost_usd) if max_cost_usd else None
+        self.selenium_library = selenium_library
+        self.requests_library = requests_library
+        self.appium_library = appium_library
 
         # Lazy-initialized components
         self._orchestrator = None
         self._genai_provider = None
         self._safety_guard = None
+
+        self._register_library_aliases()
 
         logger.info(
             "AIAgentic initialized: platform=%s, model=%s, test_mode=%s",
@@ -140,12 +152,38 @@ class AIAgentic:
             Dict mapping library name to library instance.
         """
         libs = {}
-        for name in ["SeleniumLibrary", "AppiumLibrary", "RequestsLibrary"]:
+        for name in [
+            self.selenium_library,
+            self.appium_library,
+            self.requests_library,
+            "SeleniumLibrary",
+            "AppiumLibrary",
+            "RequestsLibrary",
+        ]:
             try:
                 libs[name] = BuiltIn().get_library_instance(name)
             except (RuntimeError, RobotNotRunningError):
                 pass
+        if self.selenium_library in libs and "SeleniumLibrary" not in libs:
+            libs["SeleniumLibrary"] = libs[self.selenium_library]
+        if self.requests_library in libs and "RequestsLibrary" not in libs:
+            libs["RequestsLibrary"] = libs[self.requests_library]
+        if self.appium_library in libs and "AppiumLibrary" not in libs:
+            libs["AppiumLibrary"] = libs[self.appium_library]
         return libs
+
+    def _register_library_aliases(self):
+        """Expose configured library aliases to tool modules via RF variables."""
+        try:
+            bi = BuiltIn()
+            if self.selenium_library:
+                bi.set_global_variable("${AIAGENTIC_SELENIUM_LIBRARY}", self.selenium_library)
+            if self.requests_library:
+                bi.set_global_variable("${AIAGENTIC_REQUESTS_LIBRARY}", self.requests_library)
+            if self.appium_library:
+                bi.set_global_variable("${AIAGENTIC_APPIUM_LIBRARY}", self.appium_library)
+        except (RuntimeError, RobotNotRunningError):
+            pass
 
     def _ensure_orchestrator(self):
         """Lazy initialization of the agent orchestrator."""
@@ -209,7 +247,7 @@ class AIAgentic:
 
     def _build_web_start_state(self) -> str:
         """Describe current web start state, if any."""
-        sl = self._get_library_instance("SeleniumLibrary")
+        sl = self._get_library_instance(self.selenium_library) or self._get_library_instance("SeleniumLibrary")
         if not sl:
             return "Start State: No active browser session detected. Start from scratch."
 
@@ -245,7 +283,7 @@ class AIAgentic:
 
     def _build_mobile_start_state(self) -> str:
         """Describe current mobile start state, if any."""
-        al = self._get_library_instance("AppiumLibrary")
+        al = self._get_library_instance(self.appium_library) or self._get_library_instance("AppiumLibrary")
         if not al:
             return "Start State: No active mobile session detected. Start from scratch."
 
@@ -428,6 +466,13 @@ class AIAgentic:
         objective = test_objective
         if steps_text and steps_text not in test_objective:
             objective = f"{test_objective.rstrip()}\n\n{steps_text.strip()}"
+        if steps:
+            marker = "USER-DEFINED TEST STEPS (MAIN FLOW, HIGHEST PRIORITY)"
+            if marker.lower() not in objective.lower():
+                formatted = "\n".join(
+                    f"{idx + 1}. {step}" for idx, step in enumerate(steps)
+                )
+                objective = f"{objective.rstrip()}\n\n{marker}:\n{formatted}"
         return objective, steps, steps_text
 
     def _log_user_defined_steps(self, steps: List[str]) -> None:
