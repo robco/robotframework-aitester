@@ -25,6 +25,99 @@ from ..executor import StepStatus, record_step as record_step_impl, get_active_s
 
 logger = logging.getLogger(__name__)
 
+WEB_UI_INTERACTION_ACTIONS = {
+    "selenium_open_browser",
+    "selenium_go_to",
+    "selenium_reload_page",
+    "selenium_click_element",
+    "selenium_click_button",
+    "selenium_click_link",
+    "selenium_input_text",
+    "selenium_input_password",
+    "selenium_clear_element_text",
+    "selenium_select_from_list_by_label",
+    "selenium_select_from_list_by_value",
+    "selenium_select_checkbox",
+    "selenium_unselect_checkbox",
+    "selenium_mouse_over",
+    "selenium_press_keys",
+    "selenium_scroll_element_into_view",
+    "selenium_switch_window",
+    "selenium_select_frame",
+    "selenium_unselect_frame",
+}
+
+WEB_UI_STATE_ACTIONS = {
+    "selenium_get_text",
+    "selenium_get_element_attribute",
+    "selenium_get_value",
+    "selenium_element_should_be_visible",
+    "selenium_element_should_not_be_visible",
+    "selenium_element_should_contain",
+    "selenium_element_text_should_be",
+    "selenium_page_should_contain",
+    "selenium_page_should_not_contain",
+    "selenium_title_should_be",
+    "selenium_get_location",
+    "selenium_location_should_be",
+    "selenium_location_should_contain",
+    "selenium_wait_until_element_is_visible",
+    "selenium_wait_until_element_is_enabled",
+    "selenium_wait_until_page_contains",
+    "selenium_wait_until_page_contains_element",
+    "selenium_capture_page_screenshot",
+    "selenium_execute_javascript",
+    "get_page_structure",
+    "get_interactive_elements",
+}
+
+MOBILE_UI_INTERACTION_ACTIONS = {
+    "appium_open_application",
+    "appium_click_element",
+    "appium_input_text",
+    "appium_clear_text",
+    "appium_long_press",
+    "appium_scroll_down",
+    "appium_scroll_up",
+    "appium_background_app",
+}
+
+MOBILE_UI_STATE_ACTIONS = {
+    "appium_get_text",
+    "appium_get_element_attribute",
+    "appium_element_should_be_visible",
+    "appium_element_should_not_be_visible",
+    "appium_element_should_contain_text",
+    "appium_wait_until_element_is_visible",
+}
+
+
+def _track_ui_action(session, action_name: str, status: StepStatus) -> None:
+    if not session or status is not StepStatus.PASSED:
+        return
+    if session.test_mode == "web":
+        interaction_set = WEB_UI_INTERACTION_ACTIONS
+        state_set = WEB_UI_STATE_ACTIONS
+    elif session.test_mode == "mobile":
+        interaction_set = MOBILE_UI_INTERACTION_ACTIONS
+        state_set = MOBILE_UI_STATE_ACTIONS
+    else:
+        return
+
+    step_number = session.current_high_level_step
+    if action_name in interaction_set:
+        session.ui_interactions_total += 1
+        if step_number:
+            session.ui_interactions_by_step[step_number] = (
+                session.ui_interactions_by_step.get(step_number, 0) + 1
+            )
+    if action_name in state_set:
+        session.ui_state_checks_total += 1
+        if step_number:
+            session.ui_state_checks_by_step[step_number] = (
+                session.ui_state_checks_by_step.get(step_number, 0) + 1
+            )
+
 
 def _get_rf_output_dir():
     """Returns Robot Framework output directory path."""
@@ -410,6 +503,7 @@ def _record_tool_step(
             assertion_message=assertion_message,
             error_message=error_message,
         )
+        _track_ui_action(session, action, status)
     _log_agentic_step_to_rf(
         action=action,
         description=description,

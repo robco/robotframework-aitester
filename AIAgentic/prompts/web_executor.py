@@ -43,6 +43,8 @@ Tool usage:
   Before executing actions for each step, call `start_high_level_step` with the step number
   and the step text.
   Treat these steps as the main flow and do not deviate unless a step fails.
+  For each high-level step, you MUST execute at least one Selenium tool
+  (interaction or state check). Do NOT mark a step complete without tool calls.
     - Step recording is automatic. Do NOT call `record_step` unless explicitly asked.
 
 Locator strategies: id, name, css, xpath, link_text.

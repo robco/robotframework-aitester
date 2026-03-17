@@ -143,6 +143,10 @@ class TestSession:
         reuse_existing_session: Whether to reuse an existing browser/app session.
         start_state_summary: Start-state summary captured at session start.
         scroll_into_view: Scroll UI elements into view before interacting.
+        ui_interactions_total: Count of UI interaction tool calls.
+        ui_state_checks_total: Count of UI state validation tool calls.
+        ui_interactions_by_step: UI interaction counts per high-level step.
+        ui_state_checks_by_step: UI state validation counts per high-level step.
     """
     __test__ = False
     session_id: str
@@ -166,6 +170,10 @@ class TestSession:
     reuse_existing_session: bool = False
     start_state_summary: Optional[str] = None
     scroll_into_view: bool = True
+    ui_interactions_total: int = 0
+    ui_state_checks_total: int = 0
+    ui_interactions_by_step: Dict[int, int] = field(default_factory=dict)
+    ui_state_checks_by_step: Dict[int, int] = field(default_factory=dict)
 
     @property
     def duration_seconds(self) -> float:

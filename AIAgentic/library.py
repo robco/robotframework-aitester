@@ -472,6 +472,47 @@ class AIAgentic:
         return default
 
     @staticmethod
+    def _is_verification_step(text: str) -> bool:
+        if not text:
+            return False
+        lowered = text.lower()
+        keywords = (
+            "verify",
+            "check",
+            "confirm",
+            "ensure",
+            "assert",
+            "validate",
+            "look for",
+            "find",
+            "locate",
+            "see",
+            "presence",
+        )
+        return any(keyword in lowered for keyword in keywords)
+
+    def _validate_ui_action_coverage(self, session) -> Optional[str]:
+        if session.test_mode not in {"web", "mobile"}:
+            return None
+        if not session.high_level_steps:
+            return None
+        missing = []
+        for idx, step_text in enumerate(session.high_level_steps, start=1):
+            interactions = session.ui_interactions_by_step.get(idx, 0)
+            state_checks = session.ui_state_checks_by_step.get(idx, 0)
+            if interactions == 0 and state_checks == 0:
+                missing.append(f"{idx}. {step_text}")
+                continue
+            if interactions == 0 and not self._is_verification_step(step_text):
+                missing.append(f"{idx}. {step_text}")
+        if missing:
+            return (
+                "No UI interaction actions were recorded for the following steps:\n"
+                + "\n".join(missing)
+            )
+        return None
+
+    @staticmethod
     def _parse_numbered_steps(text: str) -> List[str]:
         """Parse numbered steps (1., 2), 3.) from free-form text."""
         if not text:
@@ -703,8 +744,14 @@ class AIAgentic:
 
     def _finalize_session(self, session, error: Exception = None):
         """Finalize session status and publish RF log summaries."""
+        validation_error = self._validate_ui_action_coverage(session)
         if error:
             session.errors.append(str(error))
+        if validation_error:
+            session.errors.append(validation_error)
+            rf_logger.error(validation_error)
+
+        if error or validation_error:
             session.finalize(SessionStatus.FAILED)
         else:
             session.finalize()
