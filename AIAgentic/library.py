@@ -613,6 +613,22 @@ class AIAgentic:
         return None
 
     @staticmethod
+    def _detect_failure_in_result(result: Optional[str]) -> Optional[str]:
+        if not result:
+            return None
+        text = str(result)
+        lower = text.lower()
+        if "**failed**" in lower:
+            return text.strip()
+        if "failed status" in lower or "status: failed" in lower or "status failed" in lower:
+            return text.strip()
+        if "completed with failed" in lower:
+            return text.strip()
+        if re.search(r"\b(test|execution)\b.*\bfailed\b", lower):
+            return text.strip()
+        return None
+
+    @staticmethod
     def _parse_numbered_steps(text: str) -> List[str]:
         """Parse numbered steps (1., 2), 3.) from free-form text."""
         if not text:
@@ -1022,7 +1038,13 @@ class AIAgentic:
                 max_iterations=iters,
                 test_mode=mode,
             )
-            rf_logger.info("Agentic test completed successfully")
+            failure_detail = self._detect_failure_in_result(result)
+            if failure_detail:
+                error = AssertionError(failure_detail)
+                error_msg = f"Agentic report indicated failure: {failure_detail}"
+                rf_logger.error(error_msg)
+            else:
+                rf_logger.info("Agentic test completed successfully")
         except Exception as e:
             error = e
             error_msg = f"Agentic test failed: {type(e).__name__}: {e}"
@@ -1105,7 +1127,13 @@ class AIAgentic:
                 focus_areas=focus_areas,
                 max_iterations=iters,
             )
-            rf_logger.info("Exploratory test completed successfully")
+            failure_detail = self._detect_failure_in_result(result)
+            if failure_detail:
+                error = AssertionError(failure_detail)
+                error_msg = f"Exploratory report indicated failure: {failure_detail}"
+                rf_logger.error(error_msg)
+            else:
+                rf_logger.info("Exploratory test completed successfully")
         except Exception as e:
             error = e
             error_msg = f"Exploratory test failed: {type(e).__name__}: {e}"
@@ -1196,7 +1224,13 @@ class AIAgentic:
                 max_iterations=iters,
                 test_mode="api",
             )
-            rf_logger.info("Agentic API test completed successfully")
+            failure_detail = self._detect_failure_in_result(result)
+            if failure_detail:
+                error = AssertionError(failure_detail)
+                error_msg = f"Agentic API report indicated failure: {failure_detail}"
+                rf_logger.error(error_msg)
+            else:
+                rf_logger.info("Agentic API test completed successfully")
         except Exception as e:
             error = e
             error_msg = f"Agentic API test failed: {type(e).__name__}: {e}"
@@ -1283,7 +1317,13 @@ class AIAgentic:
                 max_iterations=iters,
                 test_mode="mobile",
             )
-            rf_logger.info("Agentic mobile test completed successfully")
+            failure_detail = self._detect_failure_in_result(result)
+            if failure_detail:
+                error = AssertionError(failure_detail)
+                error_msg = f"Agentic mobile report indicated failure: {failure_detail}"
+                rf_logger.error(error_msg)
+            else:
+                rf_logger.info("Agentic mobile test completed successfully")
         except Exception as e:
             error = e
             error_msg = f"Agentic mobile test failed: {type(e).__name__}: {e}"

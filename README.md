@@ -292,6 +292,9 @@ or `${TEST_STEPS}` variable), those steps are treated as the main flow and
 agentic actions are grouped under them in
 the RF log with embedded screenshots for readability.
 
+If the agent's completion message explicitly reports a failed status,
+`Run Agentic*` will fail the Robot test to keep the RF result consistent.
+
 Additional reporting features:
 
 - Step-level logging via `Agentic Step` with status, duration, assertions, and embedded screenshots

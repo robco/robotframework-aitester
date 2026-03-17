@@ -76,3 +76,14 @@ def test_extract_user_defined_steps_from_numbered_list():
     )
     assert steps == ["Click button", "Verify result"]
     assert "1. Click button" in objective
+
+
+def test_detect_failure_in_result():
+    agentic = AIAgentic()
+    assert agentic._detect_failure_in_result(
+        "The test execution completed with **FAILED** status."
+    )
+    assert agentic._detect_failure_in_result("Status: FAILED")
+    assert agentic._detect_failure_in_result("Test execution failed due to error")
+    assert agentic._detect_failure_in_result("completed with failed status")
+    assert agentic._detect_failure_in_result("completed successfully") is None
