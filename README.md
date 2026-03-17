@@ -257,10 +257,10 @@ Reuse Existing Web Session
 
 | Keyword                     | Description                                       |
 |----------------------------|----------------------------------------------------|
-| `Run Agentic Test`         | Execute an autonomous test from a test objective (supports `test_steps`) |
-| `Run Agentic Exploration`  | Run exploratory testing with focus areas           |
-| `Run Agentic API Test`     | Execute autonomous REST API testing (supports `test_steps`) |
-| `Run Agentic Mobile Test`  | Execute autonomous mobile app testing (supports `test_steps`) |
+| `Run Agentic Test`         | Execute an autonomous test from a test objective (supports `test_steps`, `scroll_into_view`) |
+| `Run Agentic Exploration`  | Run exploratory testing with focus areas (supports `scroll_into_view`) |
+| `Run Agentic API Test`     | Execute autonomous REST API testing (supports `test_steps`, `scroll_into_view`) |
+| `Run Agentic Mobile Test`  | Execute autonomous mobile app testing (supports `test_steps`, `scroll_into_view`) |
 | `Get Agentic Platform Info`| Return configured platform information             |
 | `Agentic Step`             | Step-level logging keyword used by the agent tools |
 | `Agentic High Level Step`  | High-level step marker used for RF log grouping    |
@@ -293,6 +293,18 @@ Additional reporting features:
 - Step-level logging via `Agentic Step` with status, duration, assertions, and embedded screenshots
 - High-level grouping when user-defined steps are supplied
 - Screenshots are copied into `${OUTPUT_DIR}` for reliable linking in `log.html`
+
+## UI Element Scrolling
+
+All main agentic keywords accept `scroll_into_view` (default `True`). When enabled,
+the agent scrolls elements into view before interacting with them, improving
+observability in the RF log/screenshots.
+
+```robot
+${status}=    Run Agentic Test
+...    test_objective=Validate checkout flow
+...    scroll_into_view=False
+```
 
 ## Development Roadmap
 

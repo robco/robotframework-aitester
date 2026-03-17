@@ -38,6 +38,25 @@ def _get_appium():
         ) from exc
 
 
+def _should_scroll_into_view() -> bool:
+    session = get_active_session()
+    if not session:
+        return True
+    return bool(session.scroll_into_view)
+
+
+def _maybe_scroll_into_view(al, locator: str) -> None:
+    if not locator or not _should_scroll_into_view():
+        return
+    if not hasattr(al, "scroll_element_into_view"):
+        logger.debug("AppiumLibrary has no scroll_element_into_view; skipping scroll.")
+        return
+    try:
+        al.scroll_element_into_view(locator)
+    except Exception as exc:
+        logger.debug("Unable to scroll element into view (%s): %s", locator, exc)
+
+
 # ---------------------------------------------------------------------------
 # App lifecycle
 # ---------------------------------------------------------------------------
@@ -164,6 +183,7 @@ def appium_click_element(locator: str) -> str:
         Confirmation message.
     """
     al = _get_appium()
+    _maybe_scroll_into_view(al, locator)
     al.click_element(locator)
     return f"Tapped element: {locator}"
 
@@ -180,6 +200,7 @@ def appium_input_text(locator: str, text: str) -> str:
         Confirmation message.
     """
     al = _get_appium()
+    _maybe_scroll_into_view(al, locator)
     al.input_text(locator, text)
     return f"Typed '{text}' into element: {locator}"
 
@@ -195,6 +216,7 @@ def appium_clear_text(locator: str) -> str:
         Confirmation message.
     """
     al = _get_appium()
+    _maybe_scroll_into_view(al, locator)
     al.clear_text(locator)
     return f"Cleared text in element: {locator}"
 
@@ -211,6 +233,7 @@ def appium_long_press(locator: str, duration: int = 1000) -> str:
         Confirmation message.
     """
     al = _get_appium()
+    _maybe_scroll_into_view(al, locator)
     al.long_press(locator, duration)
     return f"Long pressed element: {locator} for {duration}ms"
 

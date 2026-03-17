@@ -451,6 +451,19 @@ class AIAgentic:
         return html.escape(str(text), quote=False)
 
     @staticmethod
+    def _coerce_bool(value, default: bool = True) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "y", "on"}:
+            return True
+        if text in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
+
+    @staticmethod
     def _parse_numbered_steps(text: str) -> List[str]:
         """Parse numbered steps (1., 2), 3.) from free-form text."""
         if not text:
@@ -567,6 +580,7 @@ class AIAgentic:
         high_level_steps: Optional[List[str]] = None,
         reuse_existing_session: bool = False,
         start_state_summary: Optional[str] = None,
+        scroll_into_view: bool = True,
     ):
         """Create and register an active session for step recording."""
         session = create_session(
@@ -577,6 +591,7 @@ class AIAgentic:
             high_level_steps=high_level_steps,
             reuse_existing_session=reuse_existing_session,
             start_state_summary=start_state_summary,
+            scroll_into_view=scroll_into_view,
         )
         set_active_session(session)
         return session
@@ -766,6 +781,7 @@ class AIAgentic:
         max_iterations: int = None,
         test_mode: str = None,
         test_steps: str = None,
+        scroll_into_view: bool = True,
     ) -> str:
         """Runs an autonomous AI agentic test based on the given objective.
 
@@ -780,6 +796,7 @@ class AIAgentic:
             max_iterations: Override max agent iterations for this run.
             test_mode: Override test mode for this run (web, api, mobile).
             test_steps: Optional user-defined high-level steps (numbered list).
+            scroll_into_view: Scroll elements into view before UI interactions.
 
         Returns:
             Structured test report as a string.
@@ -799,6 +816,7 @@ class AIAgentic:
         mode = test_mode or self.test_mode
         iters = int(max_iterations) if max_iterations else self.max_iterations
         start_state, reuse_existing_session = self._resolve_start_state_and_reuse(mode)
+        scroll_flag = self._coerce_bool(scroll_into_view, default=True)
         app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
             objective=objective,
@@ -808,6 +826,7 @@ class AIAgentic:
             high_level_steps=high_level_steps,
             reuse_existing_session=reuse_existing_session,
             start_state_summary=start_state,
+            scroll_into_view=scroll_flag,
         )
 
         rf_logger.info(
@@ -848,6 +867,7 @@ class AIAgentic:
         app_context: str,
         focus_areas: str = None,
         max_iterations: int = None,
+        scroll_into_view: bool = True,
     ) -> str:
         """Runs an autonomous AI exploratory test session.
 
@@ -860,6 +880,7 @@ class AIAgentic:
             focus_areas: Comma-separated areas to focus exploration on
                 (e.g., "navigation, search, product filtering, cart operations").
             max_iterations: Override max agent iterations for this run.
+            scroll_into_view: Scroll elements into view before UI interactions.
 
         Returns:
             Exploration report as a string.
@@ -876,6 +897,7 @@ class AIAgentic:
         start_state, reuse_existing_session = self._resolve_start_state_and_reuse(
             self.test_mode
         )
+        scroll_flag = self._coerce_bool(scroll_into_view, default=True)
         app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
             objective="EXPLORATORY TESTING",
@@ -884,6 +906,7 @@ class AIAgentic:
             max_iterations=iters,
             reuse_existing_session=reuse_existing_session,
             start_state_summary=start_state,
+            scroll_into_view=scroll_flag,
         )
 
         rf_logger.info(f"Starting exploratory test: focus={focus_areas}")
@@ -920,6 +943,7 @@ class AIAgentic:
         api_spec_url: str = None,
         max_iterations: int = None,
         test_steps: str = None,
+        scroll_into_view: bool = True,
     ) -> str:
         """Runs an autonomous AI agentic API test.
 
@@ -933,6 +957,7 @@ class AIAgentic:
             api_spec_url: Optional URL to OpenAPI/Swagger specification.
             max_iterations: Override max agent iterations for this run.
             test_steps: Optional user-defined high-level steps (numbered list).
+            scroll_into_view: Scroll elements into view before UI interactions.
 
         Returns:
             API test report as a string.
@@ -958,12 +983,14 @@ class AIAgentic:
         if api_spec_url:
             app_context += f" (OpenAPI spec: {api_spec_url})"
 
+        scroll_flag = self._coerce_bool(scroll_into_view, default=True)
         session = self._start_session(
             objective=objective,
             app_context=app_context,
             test_mode="api",
             max_iterations=iters,
             high_level_steps=high_level_steps,
+            scroll_into_view=scroll_flag,
         )
 
         rf_logger.info(f"Starting agentic API test: {app_context}")
@@ -1001,6 +1028,7 @@ class AIAgentic:
         app_context: str = "",
         max_iterations: int = None,
         test_steps: str = None,
+        scroll_into_view: bool = True,
     ) -> str:
         """Runs an autonomous AI agentic mobile app test.
 
@@ -1011,6 +1039,7 @@ class AIAgentic:
             app_context: Description of the mobile app under test.
             max_iterations: Override max agent iterations for this run.
             test_steps: Optional user-defined high-level steps (numbered list).
+            scroll_into_view: Scroll elements into view before UI interactions.
 
         Returns:
             Mobile test report as a string.
@@ -1033,6 +1062,7 @@ class AIAgentic:
         start_state, reuse_existing_session = self._resolve_start_state_and_reuse(
             "mobile"
         )
+        scroll_flag = self._coerce_bool(scroll_into_view, default=True)
         app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
             objective=objective,
@@ -1042,6 +1072,7 @@ class AIAgentic:
             high_level_steps=high_level_steps,
             reuse_existing_session=reuse_existing_session,
             start_state_summary=start_state,
+            scroll_into_view=scroll_flag,
         )
         if high_level_steps:
             self._log_user_defined_steps(high_level_steps)

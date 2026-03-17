@@ -140,6 +140,9 @@ class TestSession:
         high_level_steps: User-defined high-level test steps (optional).
         current_high_level_step: Current high-level step number, if any.
         current_high_level_step_description: Current high-level step text, if any.
+        reuse_existing_session: Whether to reuse an existing browser/app session.
+        start_state_summary: Start-state summary captured at session start.
+        scroll_into_view: Scroll UI elements into view before interacting.
     """
     __test__ = False
     session_id: str
@@ -162,6 +165,7 @@ class TestSession:
     current_high_level_step_description: Optional[str] = None
     reuse_existing_session: bool = False
     start_state_summary: Optional[str] = None
+    scroll_into_view: bool = True
 
     @property
     def duration_seconds(self) -> float:
@@ -428,6 +432,7 @@ def create_session(
     high_level_steps: Optional[List[str]] = None,
     reuse_existing_session: bool = False,
     start_state_summary: Optional[str] = None,
+    scroll_into_view: bool = True,
 ) -> TestSession:
     """Factory function to create a new test session.
 
@@ -456,6 +461,7 @@ def create_session(
         high_level_steps=high_level_steps or [],
         reuse_existing_session=reuse_existing_session,
         start_state_summary=start_state_summary,
+        scroll_into_view=scroll_into_view,
     )
 
 

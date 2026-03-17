@@ -60,6 +60,7 @@ class TestTestSession:
         assert len(session.session_id) == 8
         assert session.reuse_existing_session is False
         assert session.start_state_summary is None
+        assert session.scroll_into_view is True
 
     def test_create_session_reuse_flags(self):
         session = create_session(
@@ -67,9 +68,11 @@ class TestTestSession:
             "app",
             reuse_existing_session=True,
             start_state_summary="Start State: Active",
+            scroll_into_view=False,
         )
         assert session.reuse_existing_session is True
         assert session.start_state_summary == "Start State: Active"
+        assert session.scroll_into_view is False
 
     def test_session_add_step(self):
         session = create_session("test", "app")

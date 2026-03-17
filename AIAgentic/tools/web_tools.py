@@ -38,6 +38,22 @@ def _get_selenium():
         ) from exc
 
 
+def _should_scroll_into_view() -> bool:
+    session = get_active_session()
+    if not session:
+        return True
+    return bool(session.scroll_into_view)
+
+
+def _maybe_scroll_into_view(sl, locator: str) -> None:
+    if not locator or not _should_scroll_into_view():
+        return
+    try:
+        sl.scroll_element_into_view(locator)
+    except Exception as exc:
+        logger.debug("Unable to scroll element into view (%s): %s", locator, exc)
+
+
 # ---------------------------------------------------------------------------
 # Browser control
 # ---------------------------------------------------------------------------
@@ -161,6 +177,7 @@ def selenium_click_element(locator: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.click_element(locator)
     return f"Clicked element: {locator}"
 
@@ -176,6 +193,7 @@ def selenium_click_button(locator: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.click_button(locator)
     return f"Clicked button: {locator}"
 
@@ -191,6 +209,7 @@ def selenium_click_link(locator: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.click_link(locator)
     return f"Clicked link: {locator}"
 
@@ -207,6 +226,7 @@ def selenium_input_text(locator: str, text: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.input_text(locator, text)
     return f"Typed '{text}' into element: {locator}"
 
@@ -223,6 +243,7 @@ def selenium_input_password(locator: str, password: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.input_password(locator, password)
     return f"Typed password into element: {locator}"
 
@@ -238,6 +259,7 @@ def selenium_clear_element_text(locator: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.clear_element_text(locator)
     return f"Cleared text in element: {locator}"
 
@@ -254,6 +276,7 @@ def selenium_select_from_list_by_label(locator: str, label: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.select_from_list_by_label(locator, label)
     return f"Selected '{label}' from dropdown: {locator}"
 
@@ -270,6 +293,7 @@ def selenium_select_from_list_by_value(locator: str, value: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.select_from_list_by_value(locator, value)
     return f"Selected value '{value}' from dropdown: {locator}"
 
@@ -285,6 +309,7 @@ def selenium_select_checkbox(locator: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.select_checkbox(locator)
     return f"Selected checkbox: {locator}"
 
@@ -300,6 +325,7 @@ def selenium_unselect_checkbox(locator: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.unselect_checkbox(locator)
     return f"Unselected checkbox: {locator}"
 
@@ -315,6 +341,7 @@ def selenium_mouse_over(locator: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _maybe_scroll_into_view(sl, locator)
     sl.mouse_over(locator)
     return f"Hovered over element: {locator}"
 
@@ -331,7 +358,10 @@ def selenium_press_keys(locator: str, *keys: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
-    target = None if locator.upper() == "NONE" else locator
+    target = None
+    if locator is not None and str(locator).upper() != "NONE":
+        target = locator
+    _maybe_scroll_into_view(sl, target)
     sl.press_keys(target, *keys)
     return f"Pressed keys {keys} on: {locator}"
 
