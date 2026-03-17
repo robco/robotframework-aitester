@@ -651,8 +651,11 @@ class AIAgentic:
             if value is None:
                 return None
             if isinstance(value, (list, tuple)):
+                items = [str(item) for item in value]
+                if any(re.match(r"^\s*\d+[\.\)]\s+", item) for item in items):
+                    return "\n".join(items)
                 return "\n".join(
-                    f"{idx + 1}. {item}" for idx, item in enumerate(value)
+                    f"{idx + 1}. {item}" for idx, item in enumerate(items)
                 )
             return str(value)
 
@@ -997,10 +1000,6 @@ class AIAgentic:
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
         )
-        if mode == "web" and reuse_existing_session:
-            self._assert_active_web_session()
-        if mode == "mobile" and reuse_existing_session:
-            self._assert_active_mobile_session()
 
         rf_logger.info(
             f"Starting agentic test: mode={mode}, max_iterations={iters}",
@@ -1009,8 +1008,14 @@ class AIAgentic:
         rf_logger.info(f"App context: {app_context}")
         if high_level_steps:
             self._log_user_defined_steps(high_level_steps)
-
+        error = None
+        error_msg = None
+        result = None
         try:
+            if mode == "web" and reuse_existing_session:
+                self._assert_active_web_session()
+            if mode == "mobile" and reuse_existing_session:
+                self._assert_active_mobile_session()
             result = self._orchestrator.run(
                 objective=objective,
                 app_context=app_context,
@@ -1018,21 +1023,23 @@ class AIAgentic:
                 test_mode=mode,
             )
             rf_logger.info("Agentic test completed successfully")
-            try:
-                self._finalize_session(session)
-            except Exception as e:
-                logger.warning("Failed to finalize session: %s", e)
-            return result
         except Exception as e:
+            error = e
             error_msg = f"Agentic test failed: {type(e).__name__}: {e}"
             rf_logger.error(error_msg)
+        finally:
             try:
-                self._finalize_session(session, error=e)
+                self._finalize_session(session, error=error)
             except Exception as finalize_error:
                 logger.warning("Failed to finalize session: %s", finalize_error)
-            raise AssertionError(error_msg)
-        finally:
             set_active_session(None)
+
+        if error:
+            raise AssertionError(error_msg)
+        if session.status == SessionStatus.FAILED:
+            failure_detail = session.errors[-1] if session.errors else "Agentic test failed"
+            raise AssertionError(failure_detail)
+        return result
 
     @keyword
     def run_agentic_exploration(
@@ -1081,36 +1088,41 @@ class AIAgentic:
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
         )
-        if self.test_mode == "web" and reuse_existing_session:
-            self._assert_active_web_session()
-        if self.test_mode == "mobile" and reuse_existing_session:
-            self._assert_active_mobile_session()
 
         rf_logger.info(f"Starting exploratory test: focus={focus_areas}")
         rf_logger.info(f"App context: {app_context}")
 
+        error = None
+        error_msg = None
+        result = None
         try:
+            if self.test_mode == "web" and reuse_existing_session:
+                self._assert_active_web_session()
+            if self.test_mode == "mobile" and reuse_existing_session:
+                self._assert_active_mobile_session()
             result = self._orchestrator.run_exploration(
                 app_context=app_context,
                 focus_areas=focus_areas,
                 max_iterations=iters,
             )
             rf_logger.info("Exploratory test completed successfully")
-            try:
-                self._finalize_session(session)
-            except Exception as e:
-                logger.warning("Failed to finalize session: %s", e)
-            return result
         except Exception as e:
+            error = e
             error_msg = f"Exploratory test failed: {type(e).__name__}: {e}"
             rf_logger.error(error_msg)
+        finally:
             try:
-                self._finalize_session(session, error=e)
+                self._finalize_session(session, error=error)
             except Exception as finalize_error:
                 logger.warning("Failed to finalize session: %s", finalize_error)
-            raise AssertionError(error_msg)
-        finally:
             set_active_session(None)
+
+        if error:
+            raise AssertionError(error_msg)
+        if session.status == SessionStatus.FAILED:
+            failure_detail = session.errors[-1] if session.errors else "Exploratory test failed"
+            raise AssertionError(failure_detail)
+        return result
 
     @keyword
     def run_agentic_api_test(
@@ -1174,6 +1186,9 @@ class AIAgentic:
         if high_level_steps:
             self._log_user_defined_steps(high_level_steps)
 
+        error = None
+        error_msg = None
+        result = None
         try:
             result = self._orchestrator.run(
                 objective=objective,
@@ -1182,21 +1197,23 @@ class AIAgentic:
                 test_mode="api",
             )
             rf_logger.info("Agentic API test completed successfully")
-            try:
-                self._finalize_session(session)
-            except Exception as e:
-                logger.warning("Failed to finalize session: %s", e)
-            return result
         except Exception as e:
+            error = e
             error_msg = f"Agentic API test failed: {type(e).__name__}: {e}"
             rf_logger.error(error_msg)
+        finally:
             try:
-                self._finalize_session(session, error=e)
+                self._finalize_session(session, error=error)
             except Exception as finalize_error:
                 logger.warning("Failed to finalize session: %s", finalize_error)
-            raise AssertionError(error_msg)
-        finally:
             set_active_session(None)
+
+        if error:
+            raise AssertionError(error_msg)
+        if session.status == SessionStatus.FAILED:
+            failure_detail = session.errors[-1] if session.errors else "Agentic API test failed"
+            raise AssertionError(failure_detail)
+        return result
 
     @keyword
     def run_agentic_mobile_test(
@@ -1251,12 +1268,15 @@ class AIAgentic:
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
         )
-        if reuse_existing_session:
-            self._assert_active_mobile_session()
         if high_level_steps:
             self._log_user_defined_steps(high_level_steps)
 
+        error = None
+        error_msg = None
+        result = None
         try:
+            if reuse_existing_session:
+                self._assert_active_mobile_session()
             result = self._orchestrator.run(
                 objective=objective,
                 app_context=app_context,
@@ -1264,21 +1284,23 @@ class AIAgentic:
                 test_mode="mobile",
             )
             rf_logger.info("Agentic mobile test completed successfully")
-            try:
-                self._finalize_session(session)
-            except Exception as e:
-                logger.warning("Failed to finalize session: %s", e)
-            return result
         except Exception as e:
+            error = e
             error_msg = f"Agentic mobile test failed: {type(e).__name__}: {e}"
             rf_logger.error(error_msg)
+        finally:
             try:
-                self._finalize_session(session, error=e)
+                self._finalize_session(session, error=error)
             except Exception as finalize_error:
                 logger.warning("Failed to finalize session: %s", finalize_error)
-            raise AssertionError(error_msg)
-        finally:
             set_active_session(None)
+
+        if error:
+            raise AssertionError(error_msg)
+        if session.status == SessionStatus.FAILED:
+            failure_detail = session.errors[-1] if session.errors else "Agentic mobile test failed"
+            raise AssertionError(failure_detail)
+        return result
 
     @keyword
     def get_agentic_platform_info(self) -> str:

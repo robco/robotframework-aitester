@@ -62,3 +62,17 @@ def test_validate_user_step_completion_fails_on_missing():
     msg = agentic._validate_user_step_completion(session)
     assert msg is not None
     assert "No recorded actions" in msg
+
+
+def test_extract_user_defined_steps_from_numbered_list():
+    agentic = AIAgentic()
+    steps_list = [
+        "1. Click button",
+        "2. Verify result",
+    ]
+    objective, steps, _ = agentic._extract_user_defined_steps(
+        test_objective="Test objective",
+        test_steps=steps_list,
+    )
+    assert steps == ["Click button", "Verify result"]
+    assert "1. Click button" in objective
