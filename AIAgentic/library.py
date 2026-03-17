@@ -135,6 +135,8 @@ class AIAgentic:
         self._orchestrator = None
         self._genai_provider = None
         self._safety_guard = None
+        self._available_libraries = {}
+        self._available_library_keys = set()
 
         self._register_library_aliases()
 
@@ -187,32 +189,38 @@ class AIAgentic:
 
     def _ensure_orchestrator(self):
         """Lazy initialization of the agent orchestrator."""
-        if self._orchestrator is None:
-            # Create GenAI provider
-            self._genai_provider = GenAIProvider(
-                platform=self.platform,
-                model=self.model,
-                api_key=self.api_key,
-                base_url=self.base_url,
-            )
+        self._register_library_aliases()
+        available_libs = self._get_available_libraries()
+        available_keys = set(available_libs.keys())
+
+        if (
+            self._orchestrator is None
+            or available_keys != self._available_library_keys
+        ):
+            # Create or reuse GenAI provider
+            if self._genai_provider is None:
+                self._genai_provider = GenAIProvider(
+                    platform=self.platform,
+                    model=self.model,
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                )
             model = self._genai_provider.create_model()
 
-            # Discover available libraries
-            available_libs = self._get_available_libraries()
             if not available_libs:
                 logger.warning(
                     "No testing libraries (SeleniumLibrary, RequestsLibrary, AppiumLibrary) "
                     "detected. Agent will have limited tool capabilities."
                 )
 
-            # Build orchestrator
             self._orchestrator = AgentOrchestrator(
                 model=model,
                 available_libraries=available_libs,
                 verbose=self.verbose,
             )
+            self._available_libraries = available_libs
+            self._available_library_keys = available_keys
 
-            # Initialize safety guard
             self._safety_guard = SafetyGuard(
                 max_iterations=self.max_iterations,
                 timeout_seconds=self.timeout_seconds,
