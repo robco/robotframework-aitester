@@ -11,7 +11,7 @@ elements, page structure, and visible content.
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 

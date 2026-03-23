@@ -7,17 +7,18 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
-`robotframework-aiagentic` is a Robot Framework library that enables fully autonomous, AI-driven test automation. By combining the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) supervisor-agent orchestration with multi-provider GenAI model access and native RF library integration, this module allows testers to specify **what to test** rather than **how to test it**.
+`robotframework-aiagentic` is a Robot Framework library that enables fully autonomous, AI-driven test automation. By combining the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) with multi-provider GenAI model access and native RF library integration, this module allows testers to specify **what to test** rather than **how to test it**.
 
-Supply a test area, scenario, or high-level test idea for a target application — web, mobile, or API — and the AI agent autonomously designs test plans, executes test steps, captures evidence, and logs results into Robot Framework's built-in `log.html` / `report.html`.
+Supply a test area, scenario, or high-level test idea for a target application — web, mobile, or API — and the AI agent autonomously designs or reuses a plan, executes test steps, captures evidence, and logs results into Robot Framework's built-in `log.html` / `report.html`.
 
 ## Feature Highlights
 
-- Supervisor agent orchestrates four specialist agents (Planner, Web, API, Mobile) with dedicated system prompts.
+- Direct single-mode execution uses a fast path: `Planner -> Web/API/Mobile Executor`, while user-defined numbered `test_steps` skip planning and run straight in the target executor.
+- Supervisor orchestration remains available internally as a fallback path for unsupported or custom execution flows.
 - Instrumented tool bridge records step status, duration, assertion details, and screenshot references, surfacing them in RF logs via the `Agentic Step` keyword.
-- Browser analysis tools extract interactive elements, page structure, form fields, links, and console errors to guide exploration.
+- Browser analysis tools share a cached `get_page_snapshot` view and derive interactive elements, page structure, form fields, links, text content, and console errors from that shared page state.
 - Utility tools provide assertions, JSON parsing, timing, RF variable access, and optional AIVision screenshot analysis.
-- RF built-in reporting with embedded screenshots and high-level step grouping when user-defined steps are provided.
+- RF built-in reporting with embedded screenshots, cached screenshot artifacts, and high-level step grouping when user-defined steps are provided.
 
 ## Architecture
 
@@ -27,10 +28,10 @@ Supply a test area, scenario, or high-level test idea for a target application �
 │  .robot files → AIAgentic keywords (Run Agentic Test, etc.)    │
 ├────────────────────────────────────────────────────────────────┤
 │  Layer 2: Agent Orchestration Layer                            │
-│  Strands Supervisor → Planner / Web / API / Mobile             │
+│  Direct Planner/Executor fast path or Supervisor fallback      │
 ├────────────────────────────────────────────────────────────────┤
 │  Layer 3: Tool Bridge Layer                                    │
-│  Instrumented tools (Selenium/Requests/Appium + DOM analysis)  │
+│  Instrumented tools (Selenium/Requests/Appium + cached analysis) │
 ├────────────────────────────────────────────────────────────────┤
 │  Layer 4: AI Provider Layer                                    │
 │  Multi-provider GenAI (OpenAI, Ollama, Gemini, Anthropic, etc) │
@@ -40,20 +41,23 @@ Supply a test area, scenario, or high-level test idea for a target application �
 └────────────────────────────────────────────────────────────────┘
 ```
 
-### Agent Hierarchy
+### Runtime Paths
 
 ```
-                ┌───────────────────┐
-                │  SUPERVISOR       │
-                │  (QA Test Lead)   │
-                └────────┬──────────┘
-                         │
-     ┌─────────┬────────┬─────────┬─────────┐
-┌────┴───┐┌───┴────┐┌──┴────┐┌──┴─────┐
-│ Planner ││  Web   ││  API  ││ Mobile │
-│  Agent  ││Executor││Execut.││Executor│
-└────────┘└────────┘└───────┘└────────┘
+Default single-mode path:
+
+RF Keyword ──> Planner ──> Web/API/Mobile Executor
+
+User-defined numbered `test_steps`:
+
+RF Keyword ─────────────────> Web/API/Mobile Executor
+
+Fallback path:
+
+RF Keyword ──> Supervisor ──> Planner / Web / API / Mobile
 ```
+
+In practice, most web, API, mobile, and exploratory runs now use the direct executor path.
 
 ## Installation
 
@@ -120,6 +124,9 @@ Agentic Exploratory Testing
 
 The browser opened by `Open Browser` is reused by the agent. If a session is
 already active, AIAgentic will reuse it and refuse to open a new one.
+
+When numbered `test_steps` are supplied, those steps are treated as the main flow
+and executed directly in order without a separate planning handoff.
 
 ### API Testing
 
@@ -218,14 +225,14 @@ Library    AIAgentic
 | `base_url`            | (varies)   | API base URL override                         |
 | `max_iterations`      | 50         | Maximum agent iterations                      |
 | `test_mode`           | web        | Default test mode (web, api, mobile)          |
-| `headless`            | False      | Request headless browser mode (driver-dependent) |
-| `screenshot_on_action`| True       | Capture screenshots after actions when supported |
+| `headless`            | False      | Stored as configuration metadata; browser/app startup remains owned by SeleniumLibrary/AppiumLibrary |
+| `screenshot_on_action`| True       | Reserved for future screenshot policy tuning; current prompts/tool calls still decide when screenshots are taken |
 | `verbose`             | False      | Enable verbose agent logging                  |
 | `selenium_library`    | SeleniumLibrary | SeleniumLibrary name/alias for existing sessions |
 | `requests_library`    | RequestsLibrary | RequestsLibrary name/alias for existing sessions |
 | `appium_library`      | AppiumLibrary | AppiumLibrary name/alias for existing sessions |
-| `timeout_seconds`     | 600        | Session timeout in seconds                    |
-| `max_cost_usd`        | None       | Maximum session cost in USD                   |
+| `timeout_seconds`     | 600        | Configures `SafetyGuard` timeout metadata     |
+| `max_cost_usd`        | None       | Configures `SafetyGuard` cost-limit metadata  |
 
 If you import SeleniumLibrary/RequestsLibrary/AppiumLibrary with an alias,
 pass the corresponding `*_library` parameter so agentic tools attach to the
@@ -271,11 +278,10 @@ Reuse Existing Web Session
 
 ## Safety & Guardrails
 
-- **Iteration limit**: Hard stop after `max_iterations` to prevent infinite loops
-- **Timeout**: Session-level timeout enforcement (default 10 minutes)
-- **Cost tracking**: Approximate token cost accumulation with optional limit
-- **Error recovery**: Retry budget per action (max 3 retries)
-- **Action whitelist/blacklist**: Configurable tool restrictions
+- **Session reuse enforcement**: Existing Selenium/Appium sessions are reused and conflicting new sessions are refused.
+- **Execution metadata**: `max_iterations` is passed into planner/executor prompts and stored on the active session for reporting.
+- **Session bookkeeping**: `timeout_seconds` and `max_cost_usd` initialize `SafetyGuard` metadata for the run.
+- **Post-run validation**: User-defined high-level steps and UI-action coverage are checked at session finalization for web/mobile runs.
 
 ## Integration with robotframework-aivision
 
@@ -299,10 +305,19 @@ Additional reporting features:
 
 - Step-level logging via `Agentic Step` with status, duration, assertions, and embedded screenshots
 - High-level grouping when user-defined steps are supplied
-- Screenshots are copied into `${OUTPUT_DIR}` for reliable linking in `log.html`
+- Screenshot paths are normalized into `${OUTPUT_DIR}`, and embedded preview artifacts are cached under `${OUTPUT_DIR}/agentic-screenshots`
 - Screenshot files may use any image extension supported by the underlying library (e.g., `.png`, `.jpg`, `.jpeg`).
 - When a screenshot filename is explicitly provided for Selenium/Appium, AIAgentic normalizes it to `.png`
   to avoid WebDriver warnings about mismatched file types.
+
+## Browser State Analysis
+
+For web sessions, AIAgentic now prefers a shared cached page snapshot instead of
+running multiple overlapping DOM scans on every analysis step.
+
+- `get_page_snapshot` captures title, URL, text preview, forms, links, headings, and interactive elements in one pass
+- `get_interactive_elements`, `get_page_structure`, `get_page_text_content`, `get_all_links`, and `get_form_fields` reuse that cached snapshot where possible
+- Successful mutating Selenium actions invalidate the cache so later analysis reflects the latest page state
 
 ## UI Element Scrolling
 

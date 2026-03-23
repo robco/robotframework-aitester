@@ -822,7 +822,8 @@ class AIAgentic:
         return (
             '<div style="margin-top:8px;color:#5f6b7a;font-size:12px;">'
             f'Embedded step screenshots are rendered in <b>{self._escape_html(log_file)}</b>. '
-            f'<b>{self._escape_html(report_file)}</b> is only a summary view and does not show full keyword HTML content.'
+            f'<b>{self._escape_html(report_file)}</b> is only a summary view and '
+            "does not show full keyword HTML content."
             "</div>"
         )
 
@@ -1064,7 +1065,10 @@ class AIAgentic:
         if screenshot_path:
             artifact = self._prepare_screenshot_artifact(screenshot_path)
             if artifact:
-                lines.append(f'<b>Screenshot:</b> <a href="{artifact["url"]}">{self._escape_html(artifact["relpath"])}</a>')
+                lines.append(
+                    f'<b>Screenshot:</b> <a href="{artifact["url"]}">'
+                    f'{self._escape_html(artifact["relpath"])}</a>'
+                )
                 lines.append(self._build_screenshot_html(artifact))
                 lines.append(self._build_screenshot_notice_html())
             else:
