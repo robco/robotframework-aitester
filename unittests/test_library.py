@@ -91,6 +91,20 @@ def test_detect_failure_in_result():
     assert agentic._detect_failure_in_result("completed successfully") is None
 
 
+def test_extract_explicit_urls_deduplicates_user_requested_targets():
+    agentic = AIAgentic()
+
+    urls = agentic._extract_explicit_urls(
+        "Open https://example.test/login and later https://example.test/settings.",
+        ["Repeat https://example.test/login", "Ignore plain text"],
+    )
+
+    assert urls == [
+        "https://example.test/login",
+        "https://example.test/settings",
+    ]
+
+
 def test_prepare_screenshot_artifact_reuses_cached_copy(tmp_path, monkeypatch):
     agentic = AIAgentic()
     source_dir = tmp_path / "source"

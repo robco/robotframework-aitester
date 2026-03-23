@@ -840,6 +840,25 @@ class AIAgentic:
         except Exception as exc:
             logger.debug("Unable to log HTML message: %s", exc)
 
+    @staticmethod
+    def _extract_explicit_urls(*values: Any) -> List[str]:
+        pattern = re.compile(r"https?://[^\s<>'\"\)\]]+")
+        found = []
+        seen = set()
+        for value in values:
+            if not value:
+                continue
+            if isinstance(value, (list, tuple)):
+                text = "\n".join(str(item) for item in value)
+            else:
+                text = str(value)
+            for match in pattern.findall(text):
+                url = match.strip().rstrip(".,;:")
+                if url not in seen:
+                    seen.add(url)
+                    found.append(url)
+        return found
+
     def _start_session(
         self,
         objective: str,
@@ -850,6 +869,7 @@ class AIAgentic:
         reuse_existing_session: bool = False,
         start_state_summary: Optional[str] = None,
         scroll_into_view: bool = True,
+        allowed_direct_urls: Optional[List[str]] = None,
     ):
         session = create_session(
             objective=objective,
@@ -860,6 +880,7 @@ class AIAgentic:
             reuse_existing_session=reuse_existing_session,
             start_state_summary=start_state_summary,
             scroll_into_view=scroll_into_view,
+            allowed_direct_urls=allowed_direct_urls,
         )
         set_active_session(session)
         return session
@@ -1218,6 +1239,11 @@ class AIAgentic:
         )
         mode = test_mode or self.test_mode
         iters = int(max_iterations) if max_iterations else self.max_iterations
+        explicit_urls = self._extract_explicit_urls(
+            test_objective,
+            test_steps,
+            app_context,
+        )
         start_state, reuse_existing_session = self._resolve_start_state_and_reuse(mode)
         scroll_flag = self._coerce_bool(scroll_into_view, default=True)
         app_context = self._merge_app_context(app_context, start_state)
@@ -1230,6 +1256,7 @@ class AIAgentic:
             reuse_existing_session=reuse_existing_session,
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
+            allowed_direct_urls=explicit_urls,
         )
 
         rf_logger.info(f"Starting agentic test: mode={mode}, max_iterations={iters}")
@@ -1326,6 +1353,7 @@ class AIAgentic:
         self._ensure_orchestrator()
 
         iters = int(max_iterations) if max_iterations else self.max_iterations
+        explicit_urls = self._extract_explicit_urls(app_context, focus_areas)
         start_state, reuse_existing_session = self._resolve_start_state_and_reuse(self.test_mode)
         scroll_flag = self._coerce_bool(scroll_into_view, default=True)
         app_context = self._merge_app_context(app_context, start_state)
@@ -1337,6 +1365,7 @@ class AIAgentic:
             reuse_existing_session=reuse_existing_session,
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
+            allowed_direct_urls=explicit_urls,
         )
 
         rf_logger.info(f"Starting exploratory test: focus={focus_areas}")
@@ -1441,6 +1470,12 @@ class AIAgentic:
             test_steps=test_steps,
         )
         iters = int(max_iterations) if max_iterations else self.max_iterations
+        explicit_urls = self._extract_explicit_urls(
+            test_objective,
+            test_steps,
+            base_url,
+            api_spec_url,
+        )
 
         app_context = "REST API"
         if base_url:
@@ -1456,6 +1491,7 @@ class AIAgentic:
             max_iterations=iters,
             high_level_steps=high_level_steps,
             scroll_into_view=scroll_flag,
+            allowed_direct_urls=explicit_urls,
         )
 
         rf_logger.info(f"Starting agentic API test: {app_context}")
@@ -1558,6 +1594,11 @@ class AIAgentic:
             test_steps=test_steps,
         )
         iters = int(max_iterations) if max_iterations else self.max_iterations
+        explicit_urls = self._extract_explicit_urls(
+            test_objective,
+            test_steps,
+            app_context,
+        )
 
         rf_logger.info("Starting agentic mobile test")
 
@@ -1573,6 +1614,7 @@ class AIAgentic:
             reuse_existing_session=reuse_existing_session,
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
+            allowed_direct_urls=explicit_urls,
         )
         if high_level_steps:
             self._log_user_defined_steps(high_level_steps)

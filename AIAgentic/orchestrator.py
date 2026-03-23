@@ -319,6 +319,13 @@ class AgentOrchestrator:
                 "interaction, use `selenium_handle_common_blockers` before "
                 "retrying the target action."
             )
+            rules.append(
+                "7. Simulate a normal user. Use direct URL navigation only "
+                "for the initial application entry when needed. After that, "
+                "reach pages by clicking visible links, buttons, menus, tabs, "
+                "breadcrumbs, and other UI controls instead of jumping to URLs, "
+                "unless the user explicitly instructs a concrete URL to open."
+            )
         elif mode == "mobile":
             rules.append(
                 "6. When the current screen is unclear, inspect it with "

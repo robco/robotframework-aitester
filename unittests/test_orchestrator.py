@@ -93,6 +93,8 @@ def test_run_skips_planner_for_user_defined_steps(monkeypatch):
     assert "1. Open login" in executor.calls[0]
     assert "selenium_handle_common_blockers" in executor.calls[0]
     assert "Treat user-provided steps as ordered intent checkpoints" in executor.calls[0]
+    assert "reach pages by clicking visible links" in executor.calls[0]
+    assert "unless the user explicitly instructs a concrete URL to open" in executor.calls[0]
 
 
 def test_run_extracts_numbered_steps_from_objective(monkeypatch):

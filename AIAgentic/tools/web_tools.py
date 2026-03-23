@@ -9,6 +9,7 @@ via SeleniumLibrary's battle-tested Selenium/WebDriver integration.
 """
 
 import logging
+from urllib.parse import urlsplit, urlunsplit
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
@@ -81,6 +82,64 @@ def _collect_blocker_actions(snapshot) -> list[dict]:
     return actions
 
 
+def _has_active_browser_start_state(session) -> bool:
+    if not session or not session.start_state_summary:
+        return False
+    summary = str(session.start_state_summary).lower()
+    return (
+        "active browser session detected" in summary
+        and "no active browser session detected" not in summary
+    )
+
+
+def _normalize_url(url: str) -> str:
+    parts = urlsplit(str(url).strip())
+    path = parts.path or "/"
+    if path != "/" and path.endswith("/"):
+        path = path.rstrip("/")
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+
+
+def _is_explicit_user_url(url: str) -> bool:
+    session = get_active_session()
+    if not session or not session.allowed_direct_urls:
+        return False
+    normalized = _normalize_url(url)
+    return any(_normalize_url(candidate) == normalized for candidate in session.allowed_direct_urls)
+
+
+def _assert_direct_url_navigation_allowed(action_name: str, url: str) -> None:
+    session = get_active_session()
+    if not session or session.test_mode != "web":
+        return
+
+    if _is_explicit_user_url(url):
+        return
+
+    if _has_active_browser_start_state(session):
+        raise AssertionError(
+            f"Direct URL navigation via {action_name} is not allowed when the run "
+            "starts with an active browser session. Continue from the current page "
+            "and navigate like a real user by clicking visible links, buttons, "
+            f"menus, or tabs instead of jumping to '{url}'."
+        )
+
+    if session.direct_url_navigations_used > 0 or session.ui_interactions_total > 0:
+        raise AssertionError(
+            f"Direct URL navigation via {action_name} is blocked by default after "
+            "the flow has started. Navigate like a real user by clicking visible "
+            "controls instead of jumping directly to "
+            f"'{url}', unless the user explicitly requested that exact URL."
+        )
+
+
+def _record_direct_url_navigation() -> None:
+    session = get_active_session()
+    if not session or session.test_mode != "web":
+        return
+    session.direct_url_navigations_used += 1
+
+
 # ---------------------------------------------------------------------------
 # Browser control
 # ---------------------------------------------------------------------------
@@ -110,11 +169,15 @@ def selenium_open_browser(url: str, browser: str = "chrome") -> str:
                 "browser session. Reuse the existing mobile session."
             )
     try:
-        if sl.get_browser_ids():
-            sl.go_to(url)
-            return f"Browser already open; navigated to {url}"
-    except Exception as e:
-        logger.debug("Unable to detect existing browser session: %s", e)
+        existing_browser_ids = sl.get_browser_ids()
+    except Exception as exc:
+        existing_browser_ids = []
+        logger.debug("Unable to detect existing browser session: %s", exc)
+    if existing_browser_ids:
+        _assert_direct_url_navigation_allowed("selenium_open_browser", url)
+        sl.go_to(url)
+        _record_direct_url_navigation()
+        return f"Browser already open; navigated to {url}"
     if reuse_only:
         raise AssertionError(
             "Reuse of an existing browser session is required, but no active "
@@ -122,7 +185,9 @@ def selenium_open_browser(url: str, browser: str = "chrome") -> str:
             "Ensure SeleniumLibrary is attached to the existing session (use "
             "the selenium_library alias if needed)."
         )
+    _assert_direct_url_navigation_allowed("selenium_open_browser", url)
     sl.open_browser(url, browser)
+    _record_direct_url_navigation()
     return f"Browser opened and navigated to {url}"
 
 
@@ -161,7 +226,9 @@ def selenium_go_to(url: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _assert_direct_url_navigation_allowed("selenium_go_to", url)
     sl.go_to(url)
+    _record_direct_url_navigation()
     return f"Navigated to {url}"
 
 
