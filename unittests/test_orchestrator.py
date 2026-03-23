@@ -91,6 +91,31 @@ def test_run_skips_planner_for_user_defined_steps(monkeypatch):
     assert len(supervisor.calls) == 0
     assert "User-defined Main Flow:" in executor.calls[0]
     assert "1. Open login" in executor.calls[0]
+    assert "selenium_handle_common_blockers" in executor.calls[0]
+    assert "Treat user-provided steps as ordered intent checkpoints" in executor.calls[0]
+
+
+def test_run_extracts_numbered_steps_from_objective(monkeypatch):
+    orchestrator = build_orchestrator(monkeypatch, {"SeleniumLibrary": object()})
+
+    result = orchestrator.run(
+        objective="""
+        USER-DEFINED TEST STEPS (MAIN FLOW, HIGHEST PRIORITY)
+        1. Open login page
+        2. Sign in with valid credentials
+        """,
+        app_context="Web app",
+        test_mode="web",
+        max_iterations=5,
+    )
+
+    planner = get_agent("Test Planner")
+    executor = get_agent("Web Executor")
+
+    assert result == "Web Executor executed"
+    assert len(planner.calls) == 0
+    assert "1. Open login page" in executor.calls[0]
+    assert "2. Sign in with valid credentials" in executor.calls[0]
 
 
 def test_run_exploration_uses_direct_executor(monkeypatch):
@@ -112,3 +137,4 @@ def test_run_exploration_uses_direct_executor(monkeypatch):
     assert len(executor.calls) == 1
     assert len(supervisor.calls) == 0
     assert "Focus Areas: checkout" in executor.calls[0]
+    assert "get_page_snapshot" in executor.calls[0]

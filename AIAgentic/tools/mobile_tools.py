@@ -9,6 +9,7 @@ via robotframework-appiumlibrary.
 """
 
 import logging
+import xml.etree.ElementTree as ET
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
@@ -55,6 +56,191 @@ def _maybe_scroll_into_view(al, locator: str) -> None:
         al.scroll_element_into_view(locator)
     except Exception as exc:
         logger.debug("Unable to scroll element into view (%s): %s", locator, exc)
+
+
+def _xml_attr(node, *names: str) -> str:
+    for name in names:
+        value = node.attrib.get(name)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def _is_true_like(value: str) -> bool:
+    return str(value or "").strip().lower() in {"true", "1", "yes"}
+
+
+def _xpath_literal(value: str) -> str:
+    if '"' not in value:
+        return f'"{value}"'
+    if "'" not in value:
+        return f"'{value}'"
+    parts = value.split('"')
+    return 'concat(' + ', \'"\', '.join(f'"{part}"' for part in parts) + ')'
+
+
+def _build_mobile_snapshot(source: str) -> dict:
+    try:
+        root = ET.fromstring(source)
+    except ET.ParseError:
+        return {
+            "text_preview": [],
+            "interruptions": [],
+            "parse_error": "Unable to parse Appium page source",
+        }
+
+    text_preview = []
+    interruptions = []
+    seen_text = set()
+    seen_interruptions = set()
+
+    def visit(node, ancestor_context: str = "") -> None:
+        label = _xml_attr(
+            node,
+            "text",
+            "label",
+            "name",
+            "content-desc",
+            "contentDescription",
+            "value",
+        )
+        node_context = " ".join(
+            part
+            for part in [
+                ancestor_context,
+                _xml_attr(node, "resource-id", "resourceId"),
+                _xml_attr(node, "class", "type"),
+                _xml_attr(node, "hint"),
+                label,
+            ]
+            if part
+        )
+        if label and label.lower() not in seen_text and len(text_preview) < 12:
+            seen_text.add(label.lower())
+            text_preview.append(label)
+
+        candidate = _classify_mobile_interruption(label, node_context, node)
+        if candidate:
+            key = (candidate["category"], candidate["label"].lower())
+            if key not in seen_interruptions and len(interruptions) < 8:
+                seen_interruptions.add(key)
+                interruptions.append(candidate)
+
+        for child in list(node):
+            visit(child, node_context)
+
+    visit(root)
+    interruptions.sort(key=lambda item: item["score"], reverse=True)
+    return {
+        "text_preview": text_preview,
+        "interruptions": interruptions,
+        "parse_error": None,
+    }
+
+
+def _classify_mobile_interruption(label: str, context: str, node):
+    if not label:
+        return None
+    label_lower = label.lower()
+    context_lower = context.lower()
+    control_hint = " ".join(
+        [
+            node.tag,
+            _xml_attr(node, "class", "type"),
+            _xml_attr(node, "resource-id", "resourceId"),
+        ]
+    ).lower()
+    clickable = (
+        _is_true_like(node.attrib.get("clickable"))
+        or _is_true_like(node.attrib.get("focusable"))
+        or "button" in control_hint
+    )
+    if not clickable:
+        return None
+
+    category = None
+    action = None
+    score = 0
+
+    if (
+        label_lower in {
+            "allow",
+            "while using the app",
+            "only this time",
+            "allow once",
+            "continue",
+        }
+        or (
+            "allow" in label_lower
+            and "don't" not in label_lower
+            and "do not" not in label_lower
+        )
+    ):
+        category = "permission"
+        action = "allow"
+        score = 140
+    elif any(
+        phrase in label_lower
+        for phrase in ("accept", "agree", "continue")
+    ) and any(
+        phrase in context_lower
+        for phrase in ("consent", "privacy", "cookie", "terms")
+    ):
+        category = "consent"
+        action = "accept"
+        score = 130
+    elif any(
+        phrase in label_lower
+        for phrase in ("not now", "later", "skip", "dismiss", "close", "got it")
+    ):
+        category = "interruption"
+        action = "dismiss"
+        score = 125
+    elif any(
+        phrase in label_lower
+        for phrase in ("continue", "next", "start")
+    ) and any(
+        phrase in context_lower
+        for phrase in ("tutorial", "onboarding", "tour", "welcome", "coach")
+    ):
+        category = "tutorial"
+        action = "continue"
+        score = 120
+    elif label_lower in {"ok", "okay"}:
+        category = "dialog"
+        action = "dismiss"
+        score = 110
+
+    if not category or not action:
+        return None
+
+    locator = _build_mobile_text_locator(label)
+    return {
+        "category": category,
+        "action": action,
+        "label": label,
+        "locator": locator,
+        "score": score,
+    }
+
+
+def _build_mobile_text_locator(label: str) -> str:
+    literal = _xpath_literal(label)
+    return (
+        "xpath=//*[@text="
+        + literal
+        + " or @label="
+        + literal
+        + " or @name="
+        + literal
+        + " or @content-desc="
+        + literal
+        + " or @contentDescription="
+        + literal
+        + " or @value="
+        + literal
+        + "]"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +672,94 @@ def appium_get_source() -> str:
     return f"Page source:\n{source}"
 
 
+@tool
+def appium_get_view_snapshot() -> str:
+    """Gets a compact summary of the current mobile screen."""
+    al = _get_appium()
+    snapshot = _build_mobile_snapshot(al.get_source())
+    if snapshot["parse_error"]:
+        return snapshot["parse_error"]
+
+    lines = ["Screen text preview:"]
+    preview = snapshot["text_preview"][:10]
+    if preview:
+        for text in preview:
+            lines.append(f"  - {text}")
+    else:
+        lines.append("  - none")
+
+    lines.append("")
+    interruptions = snapshot["interruptions"]
+    if interruptions:
+        lines.append(f"Possible interruptions ({len(interruptions)}):")
+        for item in interruptions[:5]:
+            lines.append(
+                f"  - {item['category']}: {item['label']} ({item['action']})"
+            )
+    else:
+        lines.append("Possible interruptions: none")
+    return "\n".join(lines)
+
+
+@tool
+def appium_handle_common_interruptions(
+    max_actions: int = 2,
+    allow_permissions: bool = True,
+) -> str:
+    """Clears common transient mobile interruptions.
+
+    Args:
+        max_actions: Maximum number of interruptions to handle.
+        allow_permissions: Whether permission-approval actions are allowed.
+
+    Returns:
+        Summary of handled interruptions or a no-op message.
+    """
+    al = _get_appium()
+    max_actions = max(1, min(int(max_actions), 3))
+    handled = []
+    attempted = set()
+
+    while len(handled) < max_actions:
+        snapshot = _build_mobile_snapshot(al.get_source())
+        candidates = [
+            item
+            for item in snapshot["interruptions"]
+            if allow_permissions or item["category"] != "permission"
+        ]
+        if not candidates:
+            break
+
+        clicked = False
+        for candidate in candidates:
+            locator = candidate["locator"]
+            if locator in attempted:
+                continue
+            attempted.add(locator)
+            try:
+                al.click_element(locator)
+                handled.append(
+                    f"{candidate['category']} -> {candidate['label']}"
+                )
+                clicked = True
+                break
+            except Exception as exc:
+                logger.debug(
+                    "Failed to clear mobile interruption with %s (%s): %s",
+                    locator,
+                    candidate["label"],
+                    exc,
+                )
+        if not clicked:
+            break
+
+    if not handled:
+        return "No common interruptions detected on the current screen"
+    count = len(handled)
+    noun = "interruption" if count == 1 else "interruptions"
+    return f"Handled {count} common {noun}: " + "; ".join(handled)
+
+
 # ---------------------------------------------------------------------------
 # Tool list export
 # ---------------------------------------------------------------------------
@@ -513,5 +787,7 @@ MOBILE_TOOLS = instrument_tool_list([
     appium_wait_until_element_is_visible,
     appium_wait_until_page_contains,
     appium_capture_page_screenshot,
+    appium_get_view_snapshot,
+    appium_handle_common_interruptions,
     appium_get_source,
 ])

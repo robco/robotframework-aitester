@@ -48,6 +48,20 @@ def sample_snapshot():
         "nav_items": [{"text": "Home", "href": "https://example.test/home"}],
         "main_sections": [{"tag": "main", "preview": "Hello"}],
         "links": [{"text": "Home", "href": "https://example.test/home"}],
+        "possible_blockers": [
+            {
+                "category": "cookie/consent",
+                "preview": "We use cookies",
+                "actions": [
+                    {
+                        "label": "Accept All",
+                        "locator": "id=accept-cookies",
+                        "kind": "accept",
+                        "score": 140,
+                    }
+                ],
+            }
+        ],
         "browser_errors": [],
     }
 
@@ -67,6 +81,7 @@ def test_browser_analysis_tools_share_cached_snapshot(monkeypatch):
     text = browser_analysis_tools.get_page_text_content()
 
     assert "Page: Example" in snapshot
+    assert "Possible blockers (1)" in snapshot
     assert "Found 1 interactive elements" in interactive
     assert "Headings (1)" in structure
     assert "Hello world" in text

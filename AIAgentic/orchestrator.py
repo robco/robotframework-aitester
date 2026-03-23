@@ -23,6 +23,7 @@ Mobile Executor.
 """
 
 import logging
+import re
 from strands import Agent, tool
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 
@@ -57,6 +58,7 @@ class AgentOrchestrator:
     """
 
     USER_DEFINED_STEPS_MARKER = "USER-DEFINED TEST STEPS (MAIN FLOW, HIGHEST PRIORITY)"
+    NUMBERED_STEP_PATTERN = re.compile(r"^\s*(\d+)[\.\)]\s+(.*\S)\s*$")
 
     def __init__(self, model, available_libraries, verbose=False):
         """Initialize the orchestrator with model and available library config.
@@ -242,7 +244,22 @@ class AgentOrchestrator:
     def _has_user_defined_steps(objective, high_level_steps=None) -> bool:
         if high_level_steps:
             return True
-        return AgentOrchestrator.USER_DEFINED_STEPS_MARKER in str(objective or "")
+        return bool(AgentOrchestrator._extract_numbered_steps(objective))
+
+    @staticmethod
+    def _extract_numbered_steps(objective) -> list[str]:
+        steps = []
+        for line in str(objective or "").splitlines():
+            match = AgentOrchestrator.NUMBERED_STEP_PATTERN.match(line)
+            if match:
+                steps.append(match.group(2).strip())
+        return steps
+
+    @staticmethod
+    def _resolve_high_level_steps(objective, high_level_steps=None) -> list[str]:
+        if high_level_steps:
+            return [str(step).strip() for step in high_level_steps if str(step).strip()]
+        return AgentOrchestrator._extract_numbered_steps(objective)
 
     def _get_executor(self, test_mode: str):
         mode = str(test_mode or "").strip().lower()
@@ -262,6 +279,55 @@ class AgentOrchestrator:
             f"{index}. {step}"
             for index, step in enumerate(high_level_steps, start=1)
         )
+
+    @staticmethod
+    def _build_adaptive_execution_rules(test_mode: str) -> list[str]:
+        mode = str(test_mode or "").strip().lower()
+        rules = [
+            "Adaptive Execution Rules:",
+            (
+                "1. Treat user-provided steps as ordered intent checkpoints, "
+                "not a pixel-perfect script."
+            ),
+            (
+                "2. You may add the smallest necessary support actions to "
+                "complete the intended flow: open menus, switch tabs, "
+                "scroll, wait, refresh state, or retry once after "
+                "clearing a blocker."
+            ),
+            (
+                "3. If a transient blocker appears, handle it first and "
+                "then continue the requested flow. Common blockers include "
+                "cookie banners, consent popups, tutorials, update prompts, "
+                "permission dialogs, and modal overlays."
+            ),
+            (
+                "4. When a step is vague, infer the shortest concrete "
+                "action sequence that would satisfy it, then verify the "
+                "intended outcome with tools."
+            ),
+            (
+                "5. Do not reorder the main business flow, invent a "
+                "different user journey, or take destructive side paths "
+                "unless the requested path is impossible."
+            ),
+        ]
+        if mode == "web":
+            rules.append(
+                "6. When the page state is unclear, inspect it with "
+                "`get_page_snapshot`. If a banner or modal blocks "
+                "interaction, use `selenium_handle_common_blockers` before "
+                "retrying the target action."
+            )
+        elif mode == "mobile":
+            rules.append(
+                "6. When the current screen is unclear, inspect it with "
+                "`appium_get_view_snapshot` or `appium_get_source`. If the "
+                "app is blocked by a permission, tutorial, or update "
+                "dialog, use `appium_handle_common_interruptions` before "
+                "retrying the target action."
+            )
+        return rules
 
     def _build_planner_prompt(
         self,
@@ -292,7 +358,9 @@ Return only the structured JSON plan requested by your system prompt.
         exploratory: bool = False,
         focus_areas: str = "",
     ) -> str:
-        formatted_steps = self._format_high_level_steps(high_level_steps)
+        resolved_steps = self._resolve_high_level_steps(objective, high_level_steps)
+        formatted_steps = self._format_high_level_steps(resolved_steps)
+        adaptive_rules = self._build_adaptive_execution_rules(test_mode)
         instructions = [
             f"Test Objective: {objective}",
             "",
@@ -311,6 +379,7 @@ Return only the structured JSON plan requested by your system prompt.
                     "Instructions:",
                     "1. Explore the application directly without a planner or supervisor handoff.",
                     "2. Focus on the listed areas, exercise main flows, and verify outcomes with tools.",
+                    *adaptive_rules,
                     "3. Return a brief completion status (1-2 sentences).",
                 ]
             )
@@ -325,7 +394,8 @@ Return only the structured JSON plan requested by your system prompt.
                     "",
                     "Instructions:",
                     "1. Execute the numbered steps in order without requesting a separate plan.",
-                    "2. Treat the numbered steps as the primary flow and use direct tool calls to complete them.",
+                    "2. Treat the numbered steps as the primary flow and keep their business intent intact.",
+                    *adaptive_rules,
                     "3. Return a brief completion status (1-2 sentences).",
                 ]
             )
@@ -340,6 +410,7 @@ Return only the structured JSON plan requested by your system prompt.
                 "Instructions:",
                 "1. Execute this plan directly in priority order.",
                 "2. Use the available tools to complete and verify each scenario.",
+                *adaptive_rules,
                 "3. Return a brief completion status (1-2 sentences).",
             ]
         )
@@ -367,6 +438,8 @@ Instructions:
 1. Start by delegating test planning to the Test Planner.
 2. Execute the plan using the appropriate executor ({test_mode} mode).
    Execute scenarios in priority order and treat any user-defined steps as the main flow.
+   Executors may add minimal recovery actions to dismiss transient blockers
+   or clarify vague steps, but must preserve the requested flow and intent.
 3. Return a brief completion status (1-2 sentences). Do NOT generate a standalone report.
    The official report is provided by Robot Framework's built-in log/report.
 """
@@ -389,6 +462,7 @@ Instructions:
         focus_areas: str = "",
     ):
         executor = self._get_executor(test_mode)
+        resolved_steps = self._resolve_high_level_steps(objective, high_level_steps)
         if executor is None:
             return self._run_via_supervisor(
                 objective=objective,
@@ -398,7 +472,7 @@ Instructions:
             )
 
         plan = ""
-        if not exploratory and not self._has_user_defined_steps(objective, high_level_steps):
+        if not exploratory and not self._has_user_defined_steps(objective, resolved_steps):
             planner_prompt = self._build_planner_prompt(
                 objective=objective,
                 app_context=app_context,
@@ -414,7 +488,7 @@ Instructions:
             test_mode=test_mode,
             max_iterations=max_iterations,
             plan=plan,
-            high_level_steps=high_level_steps,
+            high_level_steps=resolved_steps,
             exploratory=exploratory,
             focus_areas=focus_areas,
         )

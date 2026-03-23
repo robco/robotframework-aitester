@@ -13,6 +13,10 @@ from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
 from .common_tools import instrument_tool_list, _normalize_screenshot_filename
+from .browser_analysis_tools import (
+    _get_page_snapshot_data,
+    invalidate_page_snapshot_cache,
+)
 from ..executor import get_active_session
 
 logger = logging.getLogger(__name__)
@@ -52,6 +56,29 @@ def _maybe_scroll_into_view(sl, locator: str) -> None:
         sl.scroll_element_into_view(locator)
     except Exception as exc:
         logger.debug("Unable to scroll element into view (%s): %s", locator, exc)
+
+
+def _collect_blocker_actions(snapshot) -> list[dict]:
+    actions = []
+    for blocker in snapshot.get("possible_blockers", []):
+        category = blocker.get("category", "unknown")
+        preview = blocker.get("preview", "")
+        for action in blocker.get("actions", []):
+            locator = action.get("locator")
+            if not locator:
+                continue
+            actions.append(
+                {
+                    "category": category,
+                    "preview": preview,
+                    "label": action.get("label", locator),
+                    "locator": locator,
+                    "kind": action.get("kind", "other"),
+                    "score": int(action.get("score", 0)),
+                }
+            )
+    actions.sort(key=lambda item: item["score"], reverse=True)
+    return actions
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +406,63 @@ def selenium_scroll_element_into_view(locator: str) -> str:
     sl = _get_selenium()
     sl.scroll_element_into_view(locator)
     return f"Scrolled element into view: {locator}"
+
+
+@tool
+def selenium_handle_common_blockers(max_actions: int = 2) -> str:
+    """Dismisses common blocking UI overlays on the current page.
+
+    This is intended for transient UI interruptions such as cookie banners,
+    consent dialogs, newsletter popups, and tutorial overlays that prevent
+    the requested action from continuing.
+
+    Args:
+        max_actions: Maximum number of blocker actions to perform.
+
+    Returns:
+        Summary of handled blockers or a no-op message.
+    """
+    sl = _get_selenium()
+    max_actions = max(1, min(int(max_actions), 3))
+    handled = []
+    attempted = set()
+
+    while len(handled) < max_actions:
+        snapshot = _get_page_snapshot_data(force_refresh=bool(handled))
+        candidates = _collect_blocker_actions(snapshot)
+        if not candidates:
+            break
+
+        clicked = False
+        for candidate in candidates:
+            locator = candidate["locator"]
+            if locator in attempted:
+                continue
+            attempted.add(locator)
+            try:
+                _maybe_scroll_into_view(sl, locator)
+                sl.click_element(locator)
+                handled.append(
+                    f"{candidate['category']} -> {candidate['label']}"
+                )
+                invalidate_page_snapshot_cache(sl.driver)
+                clicked = True
+                break
+            except Exception as exc:
+                logger.debug(
+                    "Failed to clear blocker with %s (%s): %s",
+                    locator,
+                    candidate["label"],
+                    exc,
+                )
+        if not clicked:
+            break
+
+    if not handled:
+        return "No common blockers detected on the page"
+    count = len(handled)
+    noun = "blocker" if count == 1 else "blockers"
+    return f"Handled {count} common {noun}: " + "; ".join(handled)
 
 
 # ---------------------------------------------------------------------------
@@ -765,6 +849,7 @@ WEB_TOOLS = instrument_tool_list([
     selenium_mouse_over,
     selenium_press_keys,
     selenium_scroll_element_into_view,
+    selenium_handle_common_blockers,
     selenium_get_text,
     selenium_get_element_attribute,
     selenium_get_value,

@@ -78,12 +78,21 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install build twine
+          pip install -e ".[dev]"
 
       - name: Build package
         run: python -m build
 
       - name: Check package
         run: twine check dist/*
+
+      - name: Generate Robot Framework libdoc
+        run: |
+          mkdir -p docs
+          python -m robot.libdoc AIAgentic docs/index.html
+
+      - name: Verify committed libdoc is up to date
+        run: git diff --exit-code -- docs/index.html
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v7

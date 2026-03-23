@@ -9,14 +9,16 @@
 
 `robotframework-aiagentic` is a Robot Framework library that enables fully autonomous, AI-driven test automation. By combining the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) with multi-provider GenAI model access and native RF library integration, this module allows testers to specify **what to test** rather than **how to test it**.
 
-Supply a test area, scenario, or high-level test idea for a target application — web, mobile, or API — and the AI agent autonomously designs or reuses a plan, executes test steps, captures evidence, and logs results into Robot Framework's built-in `log.html` / `report.html`.
+Supply a test area, scenario, or high-level test idea for a target application — web, mobile, or API — and the AI agent autonomously designs or reuses a plan, executes test steps, adapts around common transient blockers, captures evidence, and logs results into Robot Framework's built-in `log.html` / `report.html`.
 
 ## Feature Highlights
 
 - Direct single-mode execution uses a fast path: `Planner -> Web/API/Mobile Executor`, while user-defined numbered `test_steps` skip planning and run straight in the target executor.
+- Numbered steps embedded directly in the objective are also detected and treated as the main flow, even if `test_steps` is not passed separately.
 - Supervisor orchestration remains available internally as a fallback path for unsupported or custom execution flows.
 - Instrumented tool bridge records step status, duration, assertion details, and screenshot references, surfacing them in RF logs via the `Agentic Step` keyword.
 - Browser analysis tools share a cached `get_page_snapshot` view and derive interactive elements, page structure, form fields, links, text content, and console errors from that shared page state.
+- Web and mobile executors can add minimal recovery actions when the requested flow is blocked by cookie banners, consent modals, permission dialogs, tutorials, or similar transient UI interruptions.
 - Utility tools provide assertions, JSON parsing, timing, RF variable access, and optional AIVision screenshot analysis.
 - RF built-in reporting with embedded screenshots, cached screenshot artifacts, and high-level step grouping when user-defined steps are provided.
 
@@ -127,6 +129,11 @@ already active, AIAgentic will reuse it and refuse to open a new one.
 
 When numbered `test_steps` are supplied, those steps are treated as the main flow
 and executed directly in order without a separate planning handoff.
+
+Those steps are treated as intent checkpoints rather than a pixel-perfect script.
+The agent may insert minimal support actions, such as dismissing a cookie banner,
+opening a menu, waiting for the page to settle, or retrying after a transient blocker,
+as long as the requested business flow stays intact.
 
 ### API Testing
 
@@ -315,9 +322,19 @@ Additional reporting features:
 For web sessions, AIAgentic now prefers a shared cached page snapshot instead of
 running multiple overlapping DOM scans on every analysis step.
 
-- `get_page_snapshot` captures title, URL, text preview, forms, links, headings, and interactive elements in one pass
+- `get_page_snapshot` captures title, URL, text preview, forms, links, headings, interactive elements, and possible blocking overlays in one pass
 - `get_interactive_elements`, `get_page_structure`, `get_page_text_content`, `get_all_links`, and `get_form_fields` reuse that cached snapshot where possible
 - Successful mutating Selenium actions invalidate the cache so later analysis reflects the latest page state
+- `selenium_handle_common_blockers` uses that snapshot to dismiss common blockers such as cookie banners, consent popups, newsletter modals, and tutorial overlays before retrying the intended action
+
+## Mobile State Analysis
+
+For mobile sessions, AIAgentic can inspect the current Appium source and summarize
+likely interruptions before continuing the requested flow.
+
+- `appium_get_view_snapshot` gives a compact screen summary with text preview and likely interruption candidates
+- `appium_handle_common_interruptions` can clear common transient blockers such as permission dialogs, update prompts, onboarding/tutorial screens, and similar modal interruptions
+- Mobile executor prompts now explicitly allow minimal recovery steps when user-defined steps are imprecise or temporarily blocked
 
 ## UI Element Scrolling
 
@@ -330,17 +347,6 @@ ${status}=    Run Agentic Test
 ...    test_objective=Validate checkout flow
 ...    scroll_into_view=False
 ```
-
-## Development Roadmap
-
-| Phase | Target    | Focus                                                |
-|-------|-----------|------------------------------------------------------|
-| 1     | Q2 2026   | Core architecture + Web + API testing                |
-| 2     | Q3 2026   | Enhanced reporting + Gemini/Anthropic support        |
-| 3     | Q4 2026   | Mobile testing + Bedrock support                     |
-| 4     | Q1 2027   | Multi-agent swarm, self-healing locators             |
-| 5     | Q2 2027   | Cloud & tool integration (BrowserStack, Xray)        |
-| 6     | Q3 2027   | MCP/A2A protocol support, plugin architecture        |
 
 ## Author
 

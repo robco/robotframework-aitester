@@ -35,6 +35,9 @@ Your workflow:
 
 Always ensure all planned scenarios are attempted before returning.
 If an executor fails, log the error and continue with remaining scenarios.
+Executors may insert minimal recovery or setup actions when they are required
+to preserve the requested flow, such as dismissing cookie banners, accepting
+consent prompts, closing tutorials, or handling permission dialogs.
 
 If the objective includes user-defined numbered "Test Steps", preserve them
 verbatim in the plan and ensure executors follow them in order, calling

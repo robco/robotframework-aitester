@@ -44,6 +44,7 @@ WEB_UI_INTERACTION_ACTIONS = {
     "selenium_mouse_over",
     "selenium_press_keys",
     "selenium_scroll_element_into_view",
+    "selenium_handle_common_blockers",
     "selenium_switch_window",
     "selenium_select_frame",
     "selenium_unselect_frame",
@@ -87,6 +88,7 @@ MOBILE_UI_INTERACTION_ACTIONS = {
     "appium_scroll_down",
     "appium_scroll_up",
     "appium_background_app",
+    "appium_handle_common_interruptions",
 }
 
 MOBILE_UI_STATE_ACTIONS = {
@@ -96,6 +98,7 @@ MOBILE_UI_STATE_ACTIONS = {
     "appium_element_should_not_be_visible",
     "appium_element_should_contain_text",
     "appium_wait_until_element_is_visible",
+    "appium_get_view_snapshot",
 }
 
 WEB_UI_MUTATION_ACTIONS = {
@@ -118,6 +121,7 @@ WEB_UI_MUTATION_ACTIONS = {
     "selenium_mouse_over",
     "selenium_press_keys",
     "selenium_scroll_element_into_view",
+    "selenium_handle_common_blockers",
     "selenium_wait_until_element_is_visible",
     "selenium_wait_until_element_is_enabled",
     "selenium_wait_until_page_contains",

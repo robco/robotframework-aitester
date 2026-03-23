@@ -58,6 +58,16 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         return (value || '').trim().substring(0, limit);
     }
 
+    function xpathLiteral(value) {
+        if (value.indexOf('"') === -1) {
+            return '"' + value + '"';
+        }
+        if (value.indexOf("'") === -1) {
+            return "'" + value + "'";
+        }
+        return 'concat("' + value.replace(/"/g, '", \'"\', "') + '")';
+    }
+
     function getLocator(element) {
         if (!element) return null;
         if (element.id) return 'id=' + element.id;
@@ -66,6 +76,27 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         if (element.name) return 'name=' + element.name;
         const aria = element.getAttribute('aria-label');
         if (aria) return 'css=[aria-label="' + aria + '"]';
+        const text = safeText(
+            element.innerText || element.textContent || element.value || '',
+            80
+        );
+        if (text) {
+            const tag = element.tagName.toLowerCase();
+            const textExpr = xpathLiteral(text);
+            if (tag === 'button') {
+                return 'xpath=//button[normalize-space()=' + textExpr + ']';
+            }
+            if (tag === 'a') {
+                return 'xpath=//a[normalize-space()=' + textExpr + ']';
+            }
+            const role = element.getAttribute('role');
+            if (role === 'button') {
+                return (
+                    'xpath=//*[@role="button" and normalize-space()=' +
+                    textExpr + ']'
+                );
+            }
+        }
         return null;
     }
 
@@ -97,6 +128,94 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         return fields;
     }
 
+    function classifyBlocker(container) {
+        const context = [
+            container.id || '',
+            container.className || '',
+            container.getAttribute('role') || '',
+            container.getAttribute('aria-label') || '',
+            container.innerText || '',
+        ].join(' ').toLowerCase();
+        if (/cookie|consent|privacy|gdpr/.test(context)) return 'cookie/consent';
+        if (/newsletter|subscribe|marketing/.test(context)) return 'newsletter';
+        if (/tutorial|tour|onboarding|coach|welcome/.test(context)) return 'tutorial';
+        if (/update|upgrade|install/.test(context)) return 'update';
+        if (/permission|notification|location|camera|microphone/.test(context)) return 'permission';
+        return 'modal/popup';
+    }
+
+    function classifyBlockerAction(label, context) {
+        const labelLower = (label || '').toLowerCase();
+        const contextLower = (context || '').toLowerCase();
+        if (
+            /accept all|accept cookies|accept|i agree|agree/.test(labelLower) &&
+            /cookie|consent|privacy|gdpr/.test(contextLower)
+        ) {
+            return { kind: 'accept', score: 140 };
+        }
+        if (
+            /allow|enable|continue/.test(labelLower) &&
+            /permission|notification|location|camera|microphone/.test(contextLower)
+        ) {
+            return { kind: 'allow', score: 130 };
+        }
+        if (
+            /skip|not now|later|no thanks|dismiss|close|got it|ok|okay/.test(labelLower)
+        ) {
+            return { kind: 'dismiss', score: 125 };
+        }
+        if (
+            /continue|next|start/.test(labelLower) &&
+            /tutorial|tour|onboarding|welcome/.test(contextLower)
+        ) {
+            return { kind: 'continue', score: 115 };
+        }
+        if (
+            /close|dismiss|ok|okay/.test(labelLower) &&
+            /modal|popup|dialog|banner|overlay/.test(contextLower)
+        ) {
+            return { kind: 'dismiss', score: 110 };
+        }
+        return null;
+    }
+
+    function collectBlockerActions(container) {
+        const context = [
+            container.id || '',
+            container.className || '',
+            container.getAttribute('role') || '',
+            container.getAttribute('aria-label') || '',
+            container.innerText || '',
+        ].join(' ');
+        const actions = [];
+        const seen = new Set();
+        container.querySelectorAll(
+            'button, a, input[type="button"], input[type="submit"], [role="button"]'
+        ).forEach(element => {
+            if (actions.length >= 8 || !isVisible(element)) return;
+            const label = safeText(
+                element.innerText || element.textContent || element.value ||
+                element.getAttribute('aria-label') || element.title || '',
+                80
+            );
+            if (!label) return;
+            const key = label.toLowerCase();
+            if (seen.has(key)) return;
+            const classification = classifyBlockerAction(label, context);
+            const locator = getLocator(element);
+            if (!classification || !locator) return;
+            seen.add(key);
+            actions.push({
+                label: label,
+                locator: locator,
+                kind: classification.kind,
+                score: classification.score,
+            });
+        });
+        actions.sort((a, b) => b.score - a.score);
+        return actions;
+    }
+
     const snapshot = {
         title: document.title || 'Untitled',
         url: window.location.href,
@@ -107,6 +226,7 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         nav_items: [],
         main_sections: [],
         links: [],
+        possible_blockers: [],
         browser_errors: [],
     };
 
@@ -197,6 +317,40 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         }
     });
 
+    const blockerSelectors = [
+        'dialog',
+        '[role="dialog"]',
+        '[aria-modal="true"]',
+        '[id*="cookie"]',
+        '[class*="cookie"]',
+        '[id*="consent"]',
+        '[class*="consent"]',
+        '[id*="modal"]',
+        '[class*="modal"]',
+        '[id*="popup"]',
+        '[class*="popup"]',
+        '[id*="banner"]',
+        '[class*="banner"]',
+        '[id*="overlay"]',
+        '[class*="overlay"]',
+        '[id*="newsletter"]',
+        '[class*="newsletter"]',
+    ].join(', ');
+    const blockerContainers = [];
+    document.querySelectorAll(blockerSelectors).forEach(container => {
+        if (!isVisible(container) || blockerContainers.includes(container)) return;
+        blockerContainers.push(container);
+    });
+    blockerContainers.slice(0, 12).forEach(container => {
+        const actions = collectBlockerActions(container);
+        if (!actions.length) return;
+        snapshot.possible_blockers.push({
+            category: classifyBlocker(container),
+            preview: safeText(container.innerText, 180),
+            actions: actions,
+        });
+    });
+
     return JSON.stringify(snapshot);
     """
     result = driver.execute_script(js_code)
@@ -249,6 +403,23 @@ def _format_page_structure(snapshot: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _format_possible_blockers(blockers) -> list[str]:
+    if not blockers:
+        return ["Possible blockers: none"]
+    lines = [f"Possible blockers ({len(blockers)}):"]
+    for blocker in blockers[:5]:
+        action_labels = ", ".join(
+            action.get("label", "?")
+            for action in blocker.get("actions", [])[:4]
+        ) or "no actions found"
+        lines.append(
+            f"  - {blocker.get('category', 'unknown')}: "
+            f"{blocker.get('preview', '')[:80]} "
+            f"(actions: {action_labels})"
+        )
+    return lines
+
+
 def _resolve_form_fields(snapshot: Dict[str, Any], form_locator: str):
     forms = snapshot.get("forms", [])
     if not forms:
@@ -285,6 +456,8 @@ def get_page_snapshot(refresh: bool = False) -> str:
     lines.append("")
     lines.append("Text preview:")
     lines.append(snapshot.get("text", "")[:500] or "<empty>")
+    lines.append("")
+    lines.extend(_format_possible_blockers(snapshot.get("possible_blockers", [])))
     return "\n".join(lines)
 
 

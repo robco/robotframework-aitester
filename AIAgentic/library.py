@@ -73,6 +73,7 @@ class AIAgentic:
 
     ROBOT_LIBRARY_SCOPE = "GLOBAL"
     ROBOT_LIBRARY_VERSION = "0.1.0"
+    ROBOT_LIBRARY_DOC_FORMAT = "ROBOT"
 
     _SCREENSHOT_SUBDIR = "agentic-screenshots"
     _INLINE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"}
@@ -977,6 +978,26 @@ class AIAgentic:
 
     @keyword("Agentic High Level Step")
     def agentic_high_level_step(self, step_number: str, step_description: str = "") -> str:
+        """Logs a high-level step marker into the Robot Framework log.
+
+        This keyword is primarily used by the agent runtime to group detailed
+        actions under a broader business step. It can also be used manually if
+        you want custom RF logs to mirror the same structure.
+
+        Arguments:
+        - ``step_number``: 1-based business step number.
+        - ``step_description``: Human-readable description shown in the RF log.
+
+        Returns:
+        - A short confirmation string with the step number and description.
+
+        Examples:
+        | Agentic High Level Step | 1 | Open the login page |
+        | Agentic Step | action=selenium_go_to | description=Navigate to /login | status=PASS |
+
+        | Agentic High Level Step | 2 | Verify successful login |
+        | Agentic Step | action=selenium_page_should_contain | description=Check dashboard welcome text | status=PASS |
+        """
         safe_desc = self._escape_html(step_description).replace("\n", "<br/>")
         html_block = (
             '<div style="font-family:Segoe UI,Arial,sans-serif;'
@@ -1002,13 +1023,53 @@ class AIAgentic:
         high_level_step_number: str = "",
         high_level_step_description: str = "",
     ) -> str:
-        """Log a single agentic step as a keyword in RF logs.
+        """Logs a single detailed agentic step into the Robot Framework log.
+
+        This keyword is mainly intended for internal use by the instrumented
+        agent tools. It is still available as a public keyword when you want to
+        log custom step details in the same format as native agentic actions.
+
+        Arguments:
+        - ``action``: Tool or action name, for example ``selenium_click_element``.
+        - ``description``: Human-readable summary of what happened.
+        - ``status``: Step result. Typical values are ``PASS``, ``FAIL``,
+          ``SKIP``, or ``ERROR``.
+        - ``duration_ms``: Optional duration string in milliseconds.
+        - ``assertion_message``: Optional assertion or verification detail.
+        - ``error_message``: Optional failure detail.
+        - ``screenshot_path``: Optional path to an image file. If available, an
+          embedded preview is shown in ``log.html``.
+        - ``high_level_step_number``: Optional parent high-level step number.
+        - ``high_level_step_description``: Optional parent high-level step text.
+
+        Returns:
+        - A compact ``ACTION - DESCRIPTION (STATUS)`` string.
+
+        Failures:
+        - If ``status`` is ``FAIL`` or ``ERROR``, this keyword raises
+          ``AssertionError`` so the enclosing Robot Framework keyword fails.
 
         Notes:
-            - Embedded screenshot preview is available in Robot Framework log.html.
-            - report.html is only a summary page and does not render full keyword HTML blocks.
-            - Robot Framework will still display the original keyword arguments, including
-              the raw screenshot_path passed by the caller. That is a framework UI behavior.
+        - Embedded screenshot preview is available in Robot Framework
+          ``log.html``.
+        - ``report.html`` is only a summary page and does not render full
+          keyword HTML blocks.
+        - Robot Framework still shows the original argument values, including
+          the raw ``screenshot_path`` passed by the caller.
+
+        Examples:
+        | Agentic Step | action=selenium_click_element |
+        | ... | description=Click Sign in button | status=PASS | duration_ms=184 |
+
+        | Agentic Step | action=selenium_page_should_contain |
+        | ... | description=Verify dashboard message | status=PASS |
+        | ... | assertion_message=Welcome back | high_level_step_number=2 |
+        | ... | high_level_step_description=Verify successful login |
+
+        | Agentic Step | action=appium_capture_page_screenshot |
+        | ... | description=Capture failure evidence | status=ERROR |
+        | ... | error_message=Login dialog never appeared |
+        | ... | screenshot_path=${OUTPUT DIR}/login-failure.png |
         """
         # Backward compatibility for legacy runtime callers that passed only 7 positional
         # arguments in this order:
@@ -1095,6 +1156,60 @@ class AIAgentic:
         test_steps: str = None,
         scroll_into_view: bool = True,
     ) -> str:
+        """Runs an autonomous agentic test in web, API, or mobile mode.
+
+        The keyword prepares the execution session, discovers reusable browser
+        or app state when relevant, parses numbered user steps, and executes the
+        run through the orchestrator.
+
+        If numbered steps are supplied either in ``test_steps`` or directly
+        inside ``test_objective``, they become the main flow. The agent follows
+        them in order, but it may add minimal support actions when needed to
+        preserve the intended flow, such as dismissing a cookie banner, opening
+        a hidden menu, waiting for the page to settle, or clearing a permission
+        prompt.
+
+        Arguments:
+        - ``test_objective``: High-level goal, scenario description, or a text
+          block that already contains numbered steps.
+        - ``app_context``: Optional application background, current state, test
+          data, credentials guidance, or environment notes.
+        - ``max_iterations``: Optional per-run iteration cap. Uses the library
+          default when not given.
+        - ``test_mode``: Optional mode override. Supported values are ``web``,
+          ``api``, and ``mobile``.
+        - ``test_steps``: Optional numbered main-flow steps. May be given as a
+          string, list, tuple, or `${TEST_STEPS}` variable content.
+        - ``scroll_into_view``: For UI modes, controls whether elements are
+          scrolled into view before interactions. Defaults to ``True``.
+
+        Returns:
+        - A short completion string produced by the active executor.
+
+        Failures:
+        - Fails if orchestration raises an exception.
+        - Fails if the AI returns a clearly failed final status.
+        - Fails if user-defined steps are not completed successfully.
+
+        Examples:
+        | ${status}= | Run Agentic Test |
+        | ... | test_objective=Validate login, logout, and session reuse |
+        | ... | app_context=Customer portal with email and password authentication |
+        | Log | ${status} |
+
+        | ${TEST_STEPS}= | Set Variable |
+        | ... | 1. Open the login page |
+        | ... | 2. Sign in with valid credentials |
+        | ... | 3. Verify the dashboard is visible |
+        | ${status}= | Run Agentic Test |
+        | ... | test_objective=Smoke test the login flow |
+        | ... | app_context=Web application with active Selenium session |
+        | ... | test_mode=web | test_steps=${TEST_STEPS} | max_iterations=30 |
+
+        | ${status}= | Run Agentic Test |
+        | ... | test_objective=1. Create a user\n2. Fetch the created user\n3. Delete the user |
+        | ... | test_mode=api | app_context=User management service |
+        """
         self._ensure_orchestrator()
 
         objective, high_level_steps, _ = self._extract_user_defined_steps(
@@ -1170,6 +1285,44 @@ class AIAgentic:
         max_iterations: int = None,
         scroll_into_view: bool = True,
     ) -> str:
+        """Runs exploratory testing against the current application context.
+
+        Unlike `Run Agentic Test`, this keyword does not require predefined
+        numbered steps. The agent explores the application directly, focusing on
+        important flows and risk areas supplied in ``focus_areas``.
+
+        For web and mobile sessions, the agent can still react to transient UI
+        blockers, such as cookie banners or permission prompts, while keeping
+        exploration centered on the requested areas.
+
+        Arguments:
+        - ``app_context``: Application background, current state, environment
+          details, navigation hints, or test data notes.
+        - ``focus_areas``: Optional comma-separated or free-text guidance about
+          which areas deserve attention.
+        - ``max_iterations``: Optional per-run iteration cap. Uses the library
+          default when not given.
+        - ``scroll_into_view``: For UI modes, controls whether elements are
+          scrolled into view before interactions. Defaults to ``True``.
+
+        Returns:
+        - A short completion string produced by the exploration executor.
+
+        Failures:
+        - Fails if orchestration raises an exception.
+        - Fails if the AI returns a clearly failed final status.
+
+        Examples:
+        | ${status}= | Run Agentic Exploration |
+        | ... | app_context=E-commerce site with active browser session |
+        | ... | focus_areas=navigation, filtering, cart operations |
+        | Log | ${status} |
+
+        | ${status}= | Run Agentic Exploration |
+        | ... | app_context=Android banking app on dashboard screen |
+        | ... | focus_areas=payments, settings, notification permissions |
+        | ... | max_iterations=80 |
+        """
         self._ensure_orchestrator()
 
         iters = int(max_iterations) if max_iterations else self.max_iterations
@@ -1238,6 +1391,49 @@ class AIAgentic:
         test_steps: str = None,
         scroll_into_view: bool = True,
     ) -> str:
+        """Runs an autonomous API test using RequestsLibrary-backed tools.
+
+        The keyword builds API-focused application context from ``base_url`` and
+        ``api_spec_url``, parses optional numbered steps, and executes the run
+        in API mode.
+
+        Arguments:
+        - ``test_objective``: High-level API goal, scenario description, or text
+          that already contains numbered steps.
+        - ``base_url``: Optional service base URL used as additional context for
+          the agent.
+        - ``api_spec_url``: Optional OpenAPI or Swagger URL included in the
+          application context.
+        - ``max_iterations``: Optional per-run iteration cap. Uses the library
+          default when not given.
+        - ``test_steps``: Optional numbered API workflow steps.
+        - ``scroll_into_view``: Accepted for interface consistency. It is stored
+          in session metadata but does not affect HTTP execution.
+
+        Returns:
+        - A short completion string produced by the API executor.
+
+        Failures:
+        - Fails if orchestration raises an exception.
+        - Fails if the AI returns a clearly failed final status.
+        - Fails if user-defined steps are not completed successfully.
+
+        Examples:
+        | ${status}= | Run Agentic API Test |
+        | ... | test_objective=Validate order CRUD operations and auth failures |
+        | ... | base_url=https://api.example.com |
+        | ... | api_spec_url=https://api.example.com/openapi.json |
+        | Log | ${status} |
+
+        | ${TEST_STEPS}= | Set Variable |
+        | ... | 1. Create a user via POST /users |
+        | ... | 2. Fetch that user via GET /users/{id} |
+        | ... | 3. Delete the user via DELETE /users/{id} |
+        | ${status}= | Run Agentic API Test |
+        | ... | test_objective=Exercise the user lifecycle endpoints |
+        | ... | base_url=https://api.example.com |
+        | ... | test_steps=${TEST_STEPS} | max_iterations=25 |
+        """
         self._ensure_orchestrator()
 
         objective, high_level_steps, _ = self._extract_user_defined_steps(
@@ -1311,6 +1507,50 @@ class AIAgentic:
         test_steps: str = None,
         scroll_into_view: bool = True,
     ) -> str:
+        """Runs an autonomous mobile app test using Appium-backed tools.
+
+        The keyword reuses an active Appium session when available, parses
+        numbered user steps, and executes the run in mobile mode.
+
+        If user-defined steps are vague, the agent may add minimal support
+        actions that preserve the requested flow, such as dismissing onboarding
+        screens, handling permission dialogs, or opening a hidden tab before
+        validating the requested outcome.
+
+        Arguments:
+        - ``test_objective``: High-level mobile objective or text that contains
+          numbered main-flow steps.
+        - ``app_context``: Optional app description, device state, test account
+          notes, or navigation guidance.
+        - ``max_iterations``: Optional per-run iteration cap. Uses the library
+          default when not given.
+        - ``test_steps``: Optional numbered mobile workflow steps.
+        - ``scroll_into_view``: Controls whether visible element scrolling is
+          attempted before Appium interactions. Defaults to ``True``.
+
+        Returns:
+        - A short completion string produced by the mobile executor.
+
+        Failures:
+        - Fails if orchestration raises an exception.
+        - Fails if the AI returns a clearly failed final status.
+        - Fails if user-defined steps are not completed successfully.
+
+        Examples:
+        | ${status}= | Run Agentic Mobile Test |
+        | ... | test_objective=Validate onboarding and dashboard access |
+        | ... | app_context=Android banking app with existing Appium session |
+        | Log | ${status} |
+
+        | ${TEST_STEPS}= | Set Variable |
+        | ... | 1. Complete the onboarding flow |
+        | ... | 2. Accept notification permission if it appears |
+        | ... | 3. Verify the main dashboard is visible |
+        | ${status}= | Run Agentic Mobile Test |
+        | ... | test_objective=Smoke test first-run experience |
+        | ... | app_context=Fresh Android install |
+        | ... | test_steps=${TEST_STEPS} | max_iterations=40 |
+        """
         self._ensure_orchestrator()
 
         objective, high_level_steps, _ = self._extract_user_defined_steps(
@@ -1377,6 +1617,22 @@ class AIAgentic:
 
     @keyword
     def get_agentic_platform_info(self) -> str:
+        """Returns the current AIAgentic platform configuration summary.
+
+        The returned text is useful for debugging library imports, verifying the
+        selected model, or logging execution metadata at the start of a suite.
+
+        Returns:
+        - Multi-line text containing the active platform, model, base URL,
+          default test mode, max iterations, and verbosity flag.
+
+        Examples:
+        | ${info}= | Get Agentic Platform Info |
+        | Log | ${info} |
+
+        | ${info}= | Get Agentic Platform Info |
+        | Should Contain | ${info} | Platform: OpenAI |
+        """
         model_name = self.model or self.platform.value["default_model"]
         base = self.base_url or self.platform.value["default_base_url"]
         return (
