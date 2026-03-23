@@ -8,7 +8,7 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   lint:
@@ -68,6 +68,9 @@ jobs:
     needs: [lint, test]
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -91,7 +94,21 @@ jobs:
           mkdir -p docs
           python -m robot.libdoc AIAgentic docs/index.html
 
-      - name: Verify committed libdoc is up to date
+      - name: Commit updated libdoc
+        if: github.event_name != 'pull_request'
+        run: |
+          if git diff --quiet -- docs/index.html; then
+            echo "docs/index.html is already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html
+          git commit -m "Update generated libdoc [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Verify libdoc in pull requests
+        if: github.event_name == 'pull_request'
         run: git diff --exit-code -- docs/index.html
 
       - name: Upload package artifacts
