@@ -3,6 +3,8 @@
 
 """Unit tests for library module."""
 
+import os
+import shutil
 import pytest
 
 from AIAgentic.library import AIAgentic
@@ -87,3 +89,32 @@ def test_detect_failure_in_result():
     assert agentic._detect_failure_in_result("Test execution failed due to error")
     assert agentic._detect_failure_in_result("completed with failed status")
     assert agentic._detect_failure_in_result("completed successfully") is None
+
+
+def test_prepare_screenshot_artifact_reuses_cached_copy(tmp_path, monkeypatch):
+    agentic = AIAgentic()
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    source_path = source_dir / "shot.png"
+    source_path.write_bytes(b"png-data")
+
+    copy_calls = []
+    original_copy2 = shutil.copy2
+
+    def tracking_copy2(src, dst):
+        copy_calls.append((src, dst))
+        return original_copy2(src, dst)
+
+    monkeypatch.setattr(agentic, "_get_output_dir", lambda: str(output_dir))
+    monkeypatch.setattr("AIAgentic.library.shutil.copy2", tracking_copy2)
+
+    first_artifact = agentic._prepare_screenshot_artifact(str(source_path))
+    second_artifact = agentic._prepare_screenshot_artifact(str(source_path))
+
+    assert first_artifact is not None
+    assert second_artifact is not None
+    assert first_artifact["target_path"] == second_artifact["target_path"]
+    assert os.path.exists(first_artifact["target_path"])
+    assert len(copy_calls) == 1

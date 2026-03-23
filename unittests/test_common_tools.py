@@ -4,11 +4,12 @@
 """Unit tests for common tools module."""
 
 import os
+import shutil
 import pytest
 from strands import tool
 
 from AIAgentic.executor import StepStatus, create_session, set_active_session
-from AIAgentic.tools import common_tools
+from AIAgentic.tools import browser_analysis_tools, common_tools
 
 
 @pytest.fixture
@@ -156,3 +157,51 @@ def test_record_step_auto_starts_high_level_step():
         assert step.high_level_step_description == "Step 1"
     finally:
         set_active_session(None)
+
+
+def test_record_tool_step_invalidates_browser_snapshot_cache(monkeypatch):
+    invalidations = []
+    monkeypatch.setattr(
+        browser_analysis_tools,
+        "invalidate_page_snapshot_cache",
+        lambda driver=None: invalidations.append(driver),
+    )
+    monkeypatch.setattr(common_tools, "_log_agentic_step_to_rf", lambda **kwargs: None)
+
+    common_tools._record_tool_step(
+        action="selenium_click_element",
+        description="Click button",
+        status=StepStatus.PASSED,
+        duration_ms=5.0,
+    )
+
+    assert invalidations == [None]
+
+
+def test_ensure_screenshot_in_output_dir_reuses_cached_copy(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    source_path = source_dir / "shot.png"
+    source_path.write_bytes(b"png-data")
+
+    class DummyBuiltIn:
+        def get_variable_value(self, name):
+            return str(tmp_path)
+
+    copy_calls = []
+    original_copy2 = shutil.copy2
+
+    def tracking_copy2(src, dst):
+        copy_calls.append((src, dst))
+        return original_copy2(src, dst)
+
+    common_tools._SCREENSHOT_OUTPUT_CACHE.clear()
+    monkeypatch.setattr(common_tools, "BuiltIn", DummyBuiltIn)
+    monkeypatch.setattr(common_tools.shutil, "copy2", tracking_copy2)
+
+    first_target = common_tools._ensure_screenshot_in_output_dir(str(source_path))
+    second_target = common_tools._ensure_screenshot_in_output_dir(str(source_path))
+
+    assert first_target == second_target
+    assert os.path.exists(first_target)
+    assert len(copy_calls) == 1

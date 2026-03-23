@@ -22,20 +22,21 @@ such as Run Agentic Test, Run Agentic Exploration, and Run Agentic API Test
 that testers invoke from .robot files.
 """
 
+import hashlib
 import html
 import logging
+import mimetypes
 import os
 import re
 import shutil
-from typing import Any, Dict, Optional, List, Tuple
+import urllib.parse
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from robot.api.deco import keyword
 from robot.api import logger as rf_logger
+from robot.api.deco import keyword
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
-from .platforms import Platforms
-from .genai import GenAIProvider
-from .orchestrator import AgentOrchestrator
 from .executor import (
     SafetyGuard,
     SessionStatus,
@@ -43,6 +44,9 @@ from .executor import (
     create_session,
     set_active_session,
 )
+from .genai import GenAIProvider
+from .orchestrator import AgentOrchestrator
+from .platforms import Platforms
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +73,9 @@ class AIAgentic:
 
     ROBOT_LIBRARY_SCOPE = "GLOBAL"
     ROBOT_LIBRARY_VERSION = "0.1.0"
+
+    _SCREENSHOT_SUBDIR = "agentic-screenshots"
+    _INLINE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"}
 
     def __init__(
         self,
@@ -107,14 +114,11 @@ class AIAgentic:
             requests_library: RequestsLibrary name or alias (for existing sessions).
             appium_library: AppiumLibrary name or alias (for existing sessions).
         """
-        # Resolve platform enum
         try:
             self.platform = Platforms[platform]
         except KeyError:
             valid = ", ".join(p.name for p in Platforms)
-            raise ValueError(
-                f"Unknown platform '{platform}'. Valid options: {valid}"
-            )
+            raise ValueError(f"Unknown platform '{platform}'. Valid options: {valid}")
 
         self.model = model
         self.api_key = api_key
@@ -124,7 +128,6 @@ class AIAgentic:
         self.headless = headless
         self.screenshot_on_action = screenshot_on_action
         self.verbose = verbose
-        # report_formats is deprecated and intentionally ignored to enforce RF built-in reporting only
         self.report_formats = []
         self.timeout_seconds = float(timeout_seconds)
         self.max_cost_usd = float(max_cost_usd) if max_cost_usd else None
@@ -132,12 +135,12 @@ class AIAgentic:
         self.requests_library = requests_library
         self.appium_library = appium_library
 
-        # Lazy-initialized components
         self._orchestrator = None
         self._genai_provider = None
         self._safety_guard = None
         self._available_libraries = {}
         self._available_library_keys = set()
+        self._screenshot_artifact_cache = {}
 
         self._register_library_aliases()
 
@@ -194,11 +197,7 @@ class AIAgentic:
         available_libs = self._get_available_libraries()
         available_keys = set(available_libs.keys())
 
-        if (
-            self._orchestrator is None
-            or available_keys != self._available_library_keys
-        ):
-            # Create or reuse GenAI provider
+        if self._orchestrator is None or available_keys != self._available_library_keys:
             if self._genai_provider is None:
                 self._genai_provider = GenAIProvider(
                     platform=self.platform,
@@ -262,8 +261,8 @@ class AIAgentic:
 
         try:
             browser_ids = sl.get_browser_ids()
-        except Exception as e:
-            logger.debug("Unable to read browser ids: %s", e)
+        except Exception as exc:
+            logger.debug("Unable to read browser ids: %s", exc)
             return "Start State: No active browser session detected. Start from scratch."
 
         if not browser_ids:
@@ -273,12 +272,12 @@ class AIAgentic:
         title = None
         try:
             url = sl.get_location()
-        except Exception as e:
-            logger.debug("Unable to read current URL: %s", e)
+        except Exception as exc:
+            logger.debug("Unable to read current URL: %s", exc)
         try:
             title = sl.get_title()
-        except Exception as e:
-            logger.debug("Unable to read page title: %s", e)
+        except Exception as exc:
+            logger.debug("Unable to read page title: %s", exc)
 
         lines = [
             "Start State: Active browser session detected.",
@@ -298,8 +297,8 @@ class AIAgentic:
 
         try:
             driver = al._current_application()
-        except Exception as e:
-            logger.debug("Unable to read current Appium application: %s", e)
+        except Exception as exc:
+            logger.debug("Unable to read current Appium application: %s", exc)
             return "Start State: No active mobile session detected. Start from scratch."
 
         lines = ["Start State: Active mobile session detected."]
@@ -307,8 +306,8 @@ class AIAgentic:
         try:
             open_apps = al._cache.get_open_browsers()
             lines.append(f"Open applications: {len(open_apps)}")
-        except Exception as e:
-            logger.debug("Unable to read open Appium applications: %s", e)
+        except Exception as exc:
+            logger.debug("Unable to read open Appium applications: %s", exc)
 
         session_id = getattr(driver, "session_id", None)
         if session_id:
@@ -319,8 +318,8 @@ class AIAgentic:
             context = getattr(driver, "current_context", None)
             if callable(context):
                 context = context()
-        except Exception as e:
-            logger.debug("Unable to read current context: %s", e)
+        except Exception as exc:
+            logger.debug("Unable to read current context: %s", exc)
         if context:
             lines.append(f"Current context: {context}")
 
@@ -329,8 +328,8 @@ class AIAgentic:
             activity = getattr(driver, "current_activity", None)
             if callable(activity):
                 activity = activity()
-        except Exception as e:
-            logger.debug("Unable to read current activity: %s", e)
+        except Exception as exc:
+            logger.debug("Unable to read current activity: %s", exc)
         if activity:
             lines.append(f"Current activity: {activity}")
 
@@ -339,43 +338,23 @@ class AIAgentic:
             package = getattr(driver, "current_package", None)
             if callable(package):
                 package = package()
-        except Exception as e:
-            logger.debug("Unable to read current package: %s", e)
+        except Exception as exc:
+            logger.debug("Unable to read current package: %s", exc)
         if package:
             lines.append(f"Current package: {package}")
 
-        caps = getattr(driver, "capabilities", None) or getattr(
-            driver, "desired_capabilities", None
-        )
+        caps = getattr(driver, "capabilities", None) or getattr(driver, "desired_capabilities", None)
         if isinstance(caps, dict):
-            platform = self._first_capability(
-                caps, "platformName", "appium:platformName", "platform"
-            )
-            platform_version = self._first_capability(
-                caps, "platformVersion", "appium:platformVersion"
-            )
-            device = self._first_capability(
-                caps, "deviceName", "appium:deviceName"
-            )
-            automation = self._first_capability(
-                caps, "automationName", "appium:automationName"
-            )
-            app = self._first_capability(
-                caps, "app", "appium:app", "appPath"
-            )
-            app_package = self._first_capability(
-                caps, "appPackage", "appium:appPackage"
-            )
-            app_activity = self._first_capability(
-                caps, "appActivity", "appium:appActivity"
-            )
-            bundle_id = self._first_capability(
-                caps, "bundleId", "appium:bundleId"
-            )
+            platform = self._first_capability(caps, "platformName", "appium:platformName", "platform")
+            platform_version = self._first_capability(caps, "platformVersion", "appium:platformVersion")
+            device = self._first_capability(caps, "deviceName", "appium:deviceName")
+            automation = self._first_capability(caps, "automationName", "appium:automationName")
+            app = self._first_capability(caps, "app", "appium:app", "appPath")
+            app_package = self._first_capability(caps, "appPackage", "appium:appPackage")
+            app_activity = self._first_capability(caps, "appActivity", "appium:appActivity")
+            bundle_id = self._first_capability(caps, "bundleId", "appium:bundleId")
             udid = self._first_capability(caps, "udid", "appium:udid")
-            browser_name = self._first_capability(
-                caps, "browserName", "appium:browserName"
-            )
+            browser_name = self._first_capability(caps, "browserName", "appium:browserName")
 
             if platform:
                 lines.append(f"Platform: {platform}")
@@ -401,7 +380,6 @@ class AIAgentic:
         return "\n".join(lines)
 
     def _build_start_state_summary(self, test_mode: str) -> str:
-        """Build a start-state summary for the given test mode."""
         mode = (test_mode or "").strip().lower()
         if mode == "web":
             return self._build_web_start_state()
@@ -411,7 +389,6 @@ class AIAgentic:
 
     @staticmethod
     def _has_active_start_state(start_state: str) -> bool:
-        """Return True if start-state summary reports an active session."""
         if not start_state:
             return False
         lowered = start_state.lower()
@@ -422,7 +399,6 @@ class AIAgentic:
         return False
 
     def _resolve_start_state_and_reuse(self, test_mode: str) -> tuple[str, bool]:
-        """Resolve start-state summary and reuse flag for a run."""
         start_state = self._build_start_state_summary(test_mode)
         reuse_existing_session = self._has_active_start_state(start_state)
 
@@ -448,7 +424,6 @@ class AIAgentic:
 
     @staticmethod
     def _merge_app_context(app_context: str, start_state: str) -> str:
-        """Merge app context with the detected start state."""
         if not start_state:
             return app_context
         if app_context:
@@ -499,9 +474,7 @@ class AIAgentic:
         try:
             sl.get_location()
         except Exception as exc:
-            raise AssertionError(
-                f"Active Selenium session in '{lib_name}' is not reachable: {exc}."
-            ) from exc
+            raise AssertionError(f"Active Selenium session in '{lib_name}' is not reachable: {exc}.") from exc
 
     def _assert_active_mobile_session(self) -> None:
         lib_name = self._resolve_appium_library_name()
@@ -575,10 +548,7 @@ class AIAgentic:
             if interactions == 0 and not self._is_verification_step(step_text):
                 missing.append(f"{idx}. {step_text}")
         if missing:
-            return (
-                "No UI interaction actions were recorded for the following steps:\n"
-                + "\n".join(missing)
-            )
+            return "No UI interaction actions were recorded for the following steps:\n" + "\n".join(missing)
         return None
 
     def _validate_user_step_completion(self, session) -> Optional[str]:
@@ -630,7 +600,6 @@ class AIAgentic:
 
     @staticmethod
     def _parse_numbered_steps(text: str) -> List[str]:
-        """Parse numbered steps (1., 2), 3.) from free-form text."""
         if not text:
             return []
         steps = []
@@ -670,9 +639,7 @@ class AIAgentic:
                 items = [str(item) for item in value]
                 if any(re.match(r"^\s*\d+[\.\)]\s+", item) for item in items):
                     return "\n".join(items)
-                return "\n".join(
-                    f"{idx + 1}. {item}" for idx, item in enumerate(items)
-                )
+                return "\n".join(f"{idx + 1}. {item}" for idx, item in enumerate(items))
             return str(value)
 
         steps_text = None
@@ -697,9 +664,7 @@ class AIAgentic:
         if steps:
             marker = "USER-DEFINED TEST STEPS (MAIN FLOW, HIGHEST PRIORITY)"
             if marker.lower() not in objective.lower():
-                formatted = "\n".join(
-                    f"{idx + 1}. {step}" for idx, step in enumerate(steps)
-                )
+                formatted = "\n".join(f"{idx + 1}. {step}" for idx, step in enumerate(steps))
                 objective = f"{objective.rstrip()}\n\n{marker}:\n{formatted}"
         return objective, steps, steps_text
 
@@ -715,37 +680,149 @@ class AIAgentic:
             'background:#f8f9fa;padding:10px 12px;border-radius:6px;'
             'border:1px solid #e2e6ea;margin:6px 0;">'
             '<b>User-defined Test Steps</b>'
-            f"<ol style=\"margin:6px 0 0 18px;\">{''.join(items)}</ol>"
+            f'<ol style="margin:6px 0 0 18px;">{"".join(items)}</ol>'
             "</div>"
         )
-        rf_logger.info(html_block, html=True)
+        self._log_html_message(html_block)
 
-    def _ensure_screenshot_in_output(self, screenshot_path: str) -> Optional[str]:
-        if not screenshot_path:
-            return None
-        filename = os.path.basename(screenshot_path)
+    def _get_output_dir(self) -> str:
         try:
             output_dir = BuiltIn().get_variable_value("${OUTPUT_DIR}")
-        except RobotNotRunningError:
-            output_dir = os.getcwd()
-        if not output_dir:
-            output_dir = os.getcwd()
-        try:
-            target = os.path.join(output_dir, filename)
-            if os.path.exists(screenshot_path) and os.path.abspath(screenshot_path) != os.path.abspath(target):
-                shutil.copy2(screenshot_path, target)
-        except Exception as exc:
-            logger.debug("Unable to copy screenshot to output dir: %s", exc)
-        return filename
+        except (RuntimeError, RobotNotRunningError):
+            output_dir = None
+        output_dir = output_dir or os.getcwd()
+        os.makedirs(output_dir, exist_ok=True)
+        return os.path.abspath(output_dir)
 
-    def _build_screenshot_html(self, filename: str) -> str:
-        if not filename:
+    def _get_report_file(self) -> Optional[str]:
+        try:
+            report_file = BuiltIn().get_variable_value("${REPORT FILE}")
+        except (RuntimeError, RobotNotRunningError):
+            report_file = None
+        return str(report_file) if report_file else None
+
+    def _get_log_file(self) -> Optional[str]:
+        try:
+            log_file = BuiltIn().get_variable_value("${LOG FILE}")
+        except (RuntimeError, RobotNotRunningError):
+            log_file = None
+        return str(log_file) if log_file else None
+
+    @staticmethod
+    def _normalize_fs_path(path_value: str) -> str:
+        return os.path.abspath(os.path.expanduser(os.path.expandvars(str(path_value).strip())))
+
+    @staticmethod
+    def _sanitize_filename_component(value: str) -> str:
+        sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", value or "")
+        sanitized = sanitized.strip("-._")
+        return sanitized or "screenshot"
+
+    def _make_screenshot_target_name(self, source_path: str) -> str:
+        source = Path(source_path)
+        stem = self._sanitize_filename_component(source.stem)
+        suffix = source.suffix.lower() or ".png"
+        digest = hashlib.sha1(source_path.encode("utf-8", errors="ignore")).hexdigest()[:10]
+        return f"{stem}-{digest}{suffix}"
+
+    def _is_image_file(self, path_value: str) -> bool:
+        suffix = Path(path_value).suffix.lower()
+        if suffix in self._INLINE_IMAGE_EXTENSIONS:
+            return True
+        mime, _ = mimetypes.guess_type(path_value)
+        return bool(mime and mime.startswith("image/"))
+
+    def _build_artifact_relpath(self, filename: str) -> str:
+        return f"{self._SCREENSHOT_SUBDIR}/{filename}".replace(os.sep, "/")
+
+    def _quote_url_path(self, relpath: str) -> str:
+        return urllib.parse.quote(relpath.replace(os.sep, "/"), safe="/-_.~")
+
+    def _prepare_screenshot_artifact(self, screenshot_path: str) -> Optional[Dict[str, str]]:
+        if not screenshot_path:
+            return None
+
+        source_path = self._normalize_fs_path(screenshot_path)
+        if not os.path.exists(source_path):
+            logger.warning("Screenshot path does not exist: %s", source_path)
+            return None
+
+        output_dir = self._get_output_dir()
+        artifact_dir = os.path.join(output_dir, self._SCREENSHOT_SUBDIR)
+        os.makedirs(artifact_dir, exist_ok=True)
+
+        target_name = self._make_screenshot_target_name(source_path)
+        target_path = os.path.join(artifact_dir, target_name)
+        try:
+            source_stat = os.stat(source_path)
+        except OSError as exc:
+            logger.warning("Unable to stat screenshot '%s': %s", source_path, exc)
+            return None
+
+        cache_key = (
+            os.path.realpath(source_path),
+            os.path.realpath(target_path),
+            int(source_stat.st_mtime_ns),
+            int(source_stat.st_size),
+        )
+        cached_artifact = self._screenshot_artifact_cache.get(cache_key)
+        if cached_artifact and os.path.exists(cached_artifact["target_path"]):
+            return cached_artifact
+
+        try:
+            source_real = os.path.realpath(source_path)
+            target_real = os.path.realpath(target_path)
+            if source_real != target_real:
+                if not os.path.exists(target_path):
+                    shutil.copy2(source_path, target_path)
+                else:
+                    target_stat = os.stat(target_path)
+                    if (
+                        int(target_stat.st_mtime_ns) < int(source_stat.st_mtime_ns)
+                        or int(target_stat.st_size) != int(source_stat.st_size)
+                    ):
+                        shutil.copy2(source_path, target_path)
+        except Exception as exc:
+            logger.warning("Unable to copy screenshot '%s' to '%s': %s", source_path, target_path, exc)
+            return None
+
+        relpath = self._build_artifact_relpath(target_name)
+        artifact = {
+            "source_path": source_path,
+            "target_path": target_path,
+            "filename": target_name,
+            "relpath": relpath,
+            "url": self._quote_url_path(relpath),
+            "is_image": str(self._is_image_file(target_path)).lower(),
+        }
+        self._screenshot_artifact_cache[cache_key] = artifact
+        return artifact
+
+    def _build_screenshot_html(self, artifact: Dict[str, str]) -> str:
+        if not artifact:
             return ""
+
+        url = artifact["url"]
+        label = self._escape_html(artifact["filename"])
+        if artifact.get("is_image") == "true":
+            return (
+                '<div style="margin-top:8px">'
+                f'<div><a href="{url}">{label}</a></div>'
+                f'<a href="{url}">'
+                f'<img src="{url}" style="margin-top:6px;max-width:100%;width:900px;'
+                'border:1px solid #dfe3e8;border-radius:4px;">'
+                "</a>"
+                "</div>"
+            )
+        return f'<div style="margin-top:8px"><a href="{url}">{label}</a></div>'
+
+    def _build_screenshot_notice_html(self) -> str:
+        log_file = self._get_log_file() or "log.html"
+        report_file = self._get_report_file() or "report.html"
         return (
-            '<div style="margin-top:6px;">'
-            f'<a href="{filename}">'
-            f'<img src="{filename}" width="800px">'
-            "</a>"
+            '<div style="margin-top:8px;color:#5f6b7a;font-size:12px;">'
+            f'Embedded step screenshots are rendered in <b>{self._escape_html(log_file)}</b>. '
+            f'<b>{self._escape_html(report_file)}</b> is only a summary view and does not show full keyword HTML content.'
             "</div>"
         )
 
@@ -772,7 +849,6 @@ class AIAgentic:
         start_state_summary: Optional[str] = None,
         scroll_into_view: bool = True,
     ):
-        """Create and register an active session for step recording."""
         session = create_session(
             objective=objective,
             app_context=app_context,
@@ -787,7 +863,6 @@ class AIAgentic:
         return session
 
     def _log_basic_summary(self, session):
-        """Log a brief session summary into Robot Framework log."""
         try:
             status = session.status.value.upper()
             html_summary = (
@@ -805,7 +880,6 @@ class AIAgentic:
             logger.debug("Unable to log session summary: %s", exc)
 
     def _log_high_level_summary(self, session):
-        """Log high-level steps with their executed agentic steps."""
         if not session.high_level_steps:
             return
 
@@ -834,13 +908,11 @@ class AIAgentic:
 
         for idx, title in enumerate(session.high_level_steps, start=1):
             safe_title = self._escape_html(title).replace("\n", "<br/>")
-            parts.append(
-                f'<div style="margin:8px 0 4px 0;"><b>Step {idx}:</b> {safe_title}</div>'
-            )
+            parts.append(f'<div style="margin:8px 0 4px 0;"><b>Step {idx}:</b> {safe_title}</div>')
             steps = groups.get(idx, [])
             if not steps:
                 parts.append(
-                  '<div style="color:#6c757d;font-style:italic;margin-left:12px;">No agentic steps recorded.</div>'
+                    '<div style="color:#6c757d;font-style:italic;margin-left:12px;">No agentic steps recorded.</div>'
                 )
                 continue
             parts.append('<ul style="margin:6px 0 10px 20px;">')
@@ -855,10 +927,10 @@ class AIAgentic:
                     f"{status.upper()}</span> "
                     f"{action} - {desc}"
                 )
-                if step.screenshot_path:
-                    filename = self._ensure_screenshot_in_output(step.screenshot_path)
-                    if filename:
-                        item += f'<div style="margin:6px 0 0 28px;">{self._build_screenshot_html(filename)}</div>'
+                if getattr(step, "screenshot_path", ""):
+                    artifact = self._prepare_screenshot_artifact(step.screenshot_path)
+                    if artifact:
+                        item += f'<div style="margin:6px 0 0 28px;">{self._build_screenshot_html(artifact)}</div>'
                 item += "</li>"
                 parts.append(item)
             parts.append("</ul>")
@@ -884,7 +956,6 @@ class AIAgentic:
         self._log_html_message("".join(parts))
 
     def _finalize_session(self, session, error: Exception = None):
-        """Finalize session status and publish RF log summaries."""
         validation_error = self._validate_ui_action_coverage(session)
         completion_error = self._validate_user_step_completion(session)
         if error:
@@ -905,7 +976,6 @@ class AIAgentic:
 
     @keyword("Agentic High Level Step")
     def agentic_high_level_step(self, step_number: str, step_description: str = "") -> str:
-        """Log a high-level step marker into RF logs."""
         safe_desc = self._escape_html(step_description).replace("\n", "<br/>")
         html_block = (
             '<div style="font-family:Segoe UI,Arial,sans-serif;'
@@ -933,9 +1003,39 @@ class AIAgentic:
     ) -> str:
         """Log a single agentic step as a keyword in RF logs.
 
-        This keyword is invoked by the agentic runtime to surface step
-        details in the standard Robot Framework log.html report.
+        Notes:
+            - Embedded screenshot preview is available in Robot Framework log.html.
+            - report.html is only a summary page and does not render full keyword HTML blocks.
+            - Robot Framework will still display the original keyword arguments, including
+              the raw screenshot_path passed by the caller. That is a framework UI behavior.
         """
+        # Backward compatibility for legacy runtime callers that passed only 7 positional
+        # arguments in this order:
+        #   action, description, status, duration_ms, screenshot_path,
+        #   high_level_step_number, high_level_step_description
+        # Those old calls land here as:
+        #   assertion_message=<real screenshot path>
+        #   error_message=<real high level step number>
+        #   screenshot_path=<real high level step description>
+        if (
+            assertion_message
+            and os.path.exists(str(assertion_message))
+            and error_message
+            and str(error_message).strip().isdigit()
+            and screenshot_path
+            and not os.path.exists(str(screenshot_path))
+            and not high_level_step_number
+            and not high_level_step_description
+        ):
+            legacy_screenshot_path = assertion_message
+            legacy_step_number = str(error_message).strip()
+            legacy_step_description = str(screenshot_path)
+            screenshot_path = legacy_screenshot_path
+            high_level_step_number = legacy_step_number
+            high_level_step_description = legacy_step_description
+            assertion_message = ""
+            error_message = ""
+
         status_upper = str(status).strip().upper()
         duration_label = f"{duration_ms}ms" if duration_ms else ""
 
@@ -959,11 +1059,19 @@ class AIAgentic:
             lines.append(f"<b>Assertion:</b> {safe_assertion}")
         if error_message:
             lines.append(f"<b>Error:</b> {safe_error}")
+
+        artifact = None
         if screenshot_path:
-            filename = self._ensure_screenshot_in_output(screenshot_path)
-            if filename:
-                lines.append(f'<b>Screenshot:</b> <a href="{filename}">{filename}</a>')
-                lines.append(self._build_screenshot_html(filename))
+            artifact = self._prepare_screenshot_artifact(screenshot_path)
+            if artifact:
+                lines.append(f'<b>Screenshot:</b> <a href="{artifact["url"]}">{self._escape_html(artifact["relpath"])}</a>')
+                lines.append(self._build_screenshot_html(artifact))
+                lines.append(self._build_screenshot_notice_html())
+            else:
+                lines.append(
+                    f"<b>Screenshot:</b> Screenshot file was not available for embedding: "
+                    f"{self._escape_html(os.path.basename(str(screenshot_path)))}"
+                )
 
         self._log_html_message("<br/>".join(lines))
 
@@ -983,30 +1091,6 @@ class AIAgentic:
         test_steps: str = None,
         scroll_into_view: bool = True,
     ) -> str:
-        """Runs an autonomous AI agentic test based on the given objective.
-
-        The AI agent will autonomously design test scenarios, execute test
-        steps, capture evidence, and generate a structured test report.
-
-        Args:
-            test_objective: Natural language description of what to test
-                (e.g., "Test the login functionality including valid and invalid credentials").
-            app_context: Description of the application under test
-                (e.g., "E-commerce web application with email/password login").
-            max_iterations: Override max agent iterations for this run.
-            test_mode: Override test mode for this run (web, api, mobile).
-            test_steps: Optional user-defined high-level steps (numbered list).
-            scroll_into_view: Scroll elements into view before UI interactions.
-
-        Returns:
-            Structured test report as a string.
-
-        Examples:
-        | ${report}= | Run Agentic Test |
-        | ... | test_objective=Test login with valid and invalid credentials |
-        | ... | app_context=Web application with email/password login |
-        | ... | max_iterations=50 |
-        """
         self._ensure_orchestrator()
 
         objective, high_level_steps, _ = self._extract_user_defined_steps(
@@ -1029,9 +1113,7 @@ class AIAgentic:
             scroll_into_view=scroll_flag,
         )
 
-        rf_logger.info(
-            f"Starting agentic test: mode={mode}, max_iterations={iters}",
-        )
+        rf_logger.info(f"Starting agentic test: mode={mode}, max_iterations={iters}")
         rf_logger.info(f"Objective: {objective}")
         rf_logger.info(f"App context: {app_context}")
         if high_level_steps:
@@ -1049,6 +1131,7 @@ class AIAgentic:
                 app_context=app_context,
                 max_iterations=iters,
                 test_mode=mode,
+                high_level_steps=high_level_steps,
             )
             failure_detail = self._detect_failure_in_result(result)
             if failure_detail:
@@ -1057,9 +1140,9 @@ class AIAgentic:
                 rf_logger.error(error_msg)
             else:
                 rf_logger.info("Agentic test completed successfully")
-        except Exception as e:
-            error = e
-            error_msg = f"Agentic test failed: {type(e).__name__}: {e}"
+        except Exception as exc:
+            error = exc
+            error_msg = f"Agentic test failed: {type(exc).__name__}: {exc}"
             rf_logger.error(error_msg)
         finally:
             try:
@@ -1083,34 +1166,10 @@ class AIAgentic:
         max_iterations: int = None,
         scroll_into_view: bool = True,
     ) -> str:
-        """Runs an autonomous AI exploratory test session.
-
-        The AI agent freely explores the application, discovering
-        features, testing edge cases, and reporting findings without
-        a predefined test plan.
-
-        Args:
-            app_context: Description of the application under test.
-            focus_areas: Comma-separated areas to focus exploration on
-                (e.g., "navigation, search, product filtering, cart operations").
-            max_iterations: Override max agent iterations for this run.
-            scroll_into_view: Scroll elements into view before UI interactions.
-
-        Returns:
-            Exploration report as a string.
-
-        Examples:
-        | ${report}= | Run Agentic Exploration |
-        | ... | app_context=E-commerce platform with catalog and checkout |
-        | ... | focus_areas=navigation, search, product filtering |
-        | ... | max_iterations=100 |
-        """
         self._ensure_orchestrator()
 
         iters = int(max_iterations) if max_iterations else self.max_iterations
-        start_state, reuse_existing_session = self._resolve_start_state_and_reuse(
-            self.test_mode
-        )
+        start_state, reuse_existing_session = self._resolve_start_state_and_reuse(self.test_mode)
         scroll_flag = self._coerce_bool(scroll_into_view, default=True)
         app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
@@ -1138,6 +1197,7 @@ class AIAgentic:
                 app_context=app_context,
                 focus_areas=focus_areas,
                 max_iterations=iters,
+                test_mode=self.test_mode,
             )
             failure_detail = self._detect_failure_in_result(result)
             if failure_detail:
@@ -1146,9 +1206,9 @@ class AIAgentic:
                 rf_logger.error(error_msg)
             else:
                 rf_logger.info("Exploratory test completed successfully")
-        except Exception as e:
-            error = e
-            error_msg = f"Exploratory test failed: {type(e).__name__}: {e}"
+        except Exception as exc:
+            error = exc
+            error_msg = f"Exploratory test failed: {type(exc).__name__}: {exc}"
             rf_logger.error(error_msg)
         finally:
             try:
@@ -1174,29 +1234,6 @@ class AIAgentic:
         test_steps: str = None,
         scroll_into_view: bool = True,
     ) -> str:
-        """Runs an autonomous AI agentic API test.
-
-        Specialized keyword for REST API testing. The AI agent will
-        test API endpoints based on the objective, optionally using
-        an OpenAPI specification for endpoint discovery.
-
-        Args:
-            test_objective: Natural language description of what API functionality to test.
-            base_url: API base URL (used as context for the agent).
-            api_spec_url: Optional URL to OpenAPI/Swagger specification.
-            max_iterations: Override max agent iterations for this run.
-            test_steps: Optional user-defined high-level steps (numbered list).
-            scroll_into_view: Scroll elements into view before UI interactions.
-
-        Returns:
-            API test report as a string.
-
-        Examples:
-        | ${report}= | Run Agentic API Test |
-        | ... | test_objective=Test user management CRUD operations |
-        | ... | base_url=https://api.example.com |
-        | ... | api_spec_url=https://api.example.com/openapi.json |
-        """
         self._ensure_orchestrator()
 
         objective, high_level_steps, _ = self._extract_user_defined_steps(
@@ -1205,7 +1242,6 @@ class AIAgentic:
         )
         iters = int(max_iterations) if max_iterations else self.max_iterations
 
-        # Build app context from API details
         app_context = "REST API"
         if base_url:
             app_context += f" at {base_url}"
@@ -1235,6 +1271,7 @@ class AIAgentic:
                 app_context=app_context,
                 max_iterations=iters,
                 test_mode="api",
+                high_level_steps=high_level_steps,
             )
             failure_detail = self._detect_failure_in_result(result)
             if failure_detail:
@@ -1243,9 +1280,9 @@ class AIAgentic:
                 rf_logger.error(error_msg)
             else:
                 rf_logger.info("Agentic API test completed successfully")
-        except Exception as e:
-            error = e
-            error_msg = f"Agentic API test failed: {type(e).__name__}: {e}"
+        except Exception as exc:
+            error = exc
+            error_msg = f"Agentic API test failed: {type(exc).__name__}: {exc}"
             rf_logger.error(error_msg)
         finally:
             try:
@@ -1270,25 +1307,6 @@ class AIAgentic:
         test_steps: str = None,
         scroll_into_view: bool = True,
     ) -> str:
-        """Runs an autonomous AI agentic mobile app test.
-
-        Specialized keyword for mobile application testing using Appium.
-
-        Args:
-            test_objective: Natural language description of what to test.
-            app_context: Description of the mobile app under test.
-            max_iterations: Override max agent iterations for this run.
-            test_steps: Optional user-defined high-level steps (numbered list).
-            scroll_into_view: Scroll elements into view before UI interactions.
-
-        Returns:
-            Mobile test report as a string.
-
-        Examples:
-        | ${report}= | Run Agentic Mobile Test |
-        | ... | test_objective=Test onboarding flow and main navigation |
-        | ... | app_context=Android banking application |
-        """
         self._ensure_orchestrator()
 
         objective, high_level_steps, _ = self._extract_user_defined_steps(
@@ -1299,9 +1317,7 @@ class AIAgentic:
 
         rf_logger.info("Starting agentic mobile test")
 
-        start_state, reuse_existing_session = self._resolve_start_state_and_reuse(
-            "mobile"
-        )
+        start_state, reuse_existing_session = self._resolve_start_state_and_reuse("mobile")
         scroll_flag = self._coerce_bool(scroll_into_view, default=True)
         app_context = self._merge_app_context(app_context, start_state)
         session = self._start_session(
@@ -1328,6 +1344,7 @@ class AIAgentic:
                 app_context=app_context,
                 max_iterations=iters,
                 test_mode="mobile",
+                high_level_steps=high_level_steps,
             )
             failure_detail = self._detect_failure_in_result(result)
             if failure_detail:
@@ -1336,9 +1353,9 @@ class AIAgentic:
                 rf_logger.error(error_msg)
             else:
                 rf_logger.info("Agentic mobile test completed successfully")
-        except Exception as e:
-            error = e
-            error_msg = f"Agentic mobile test failed: {type(e).__name__}: {e}"
+        except Exception as exc:
+            error = exc
+            error_msg = f"Agentic mobile test failed: {type(exc).__name__}: {exc}"
             rf_logger.error(error_msg)
         finally:
             try:
@@ -1356,15 +1373,6 @@ class AIAgentic:
 
     @keyword
     def get_agentic_platform_info(self) -> str:
-        """Returns information about the configured AI platform.
-
-        Returns:
-            String with platform name, model, and configuration details.
-
-        Examples:
-        | ${info}= | Get Agentic Platform Info |
-        | Log | ${info} |
-        """
         model_name = self.model or self.platform.value["default_model"]
         base = self.base_url or self.platform.value["default_base_url"]
         return (

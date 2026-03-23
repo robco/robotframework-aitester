@@ -11,12 +11,14 @@ elements, page structure, and visible content.
 
 import json
 import logging
+from typing import Any, Dict, Optional
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
 from .common_tools import instrument_tool_list
 
 logger = logging.getLogger(__name__)
+_PAGE_SNAPSHOT_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 def _get_selenium():
@@ -39,6 +41,253 @@ def _get_selenium():
         ) from exc
 
 
+def _get_snapshot_cache_key(driver) -> str:
+    return str(getattr(driver, "session_id", None) or id(driver))
+
+
+def invalidate_page_snapshot_cache(driver=None) -> None:
+    if driver is None:
+        _PAGE_SNAPSHOT_CACHE.clear()
+        return
+    _PAGE_SNAPSHOT_CACHE.pop(_get_snapshot_cache_key(driver), None)
+
+
+def _build_page_snapshot(driver) -> Dict[str, Any]:
+    js_code = """
+    function safeText(value, limit) {
+        return (value || '').trim().substring(0, limit);
+    }
+
+    function getLocator(element) {
+        if (!element) return null;
+        if (element.id) return 'id=' + element.id;
+        const testId = element.getAttribute('data-testid');
+        if (testId) return 'css=[data-testid="' + testId + '"]';
+        if (element.name) return 'name=' + element.name;
+        const aria = element.getAttribute('aria-label');
+        if (aria) return 'css=[aria-label="' + aria + '"]';
+        return null;
+    }
+
+    function isVisible(element) {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 &&
+            style.display !== 'none' &&
+            style.visibility !== 'hidden';
+    }
+
+    function collectFormFields(formElement) {
+        const fields = [];
+        formElement.querySelectorAll('input, select, textarea, button').forEach((element, index) => {
+            if (index >= 25) return;
+            fields.push({
+                tag: element.tagName.toLowerCase(),
+                type: element.type || null,
+                name: element.name || null,
+                id: element.id || null,
+                placeholder: element.placeholder || null,
+                required: element.required || false,
+                value: safeText(element.value, 120) || null,
+                label: element.labels && element.labels.length > 0
+                    ? safeText(element.labels[0].textContent, 120)
+                    : null,
+            });
+        });
+        return fields;
+    }
+
+    const snapshot = {
+        title: document.title || 'Untitled',
+        url: window.location.href,
+        text: document.body ? document.body.innerText.substring(0, 5000) : '',
+        interactive_elements: [],
+        headings: [],
+        forms: [],
+        nav_items: [],
+        main_sections: [],
+        links: [],
+        browser_errors: [],
+    };
+
+    const interactiveSelectors = [
+        'a[href]',
+        'button',
+        'input',
+        'select',
+        'textarea',
+        '[role="button"]',
+        '[role="link"]',
+        '[role="tab"]',
+        '[role="menuitem"]',
+        '[onclick]',
+        '[tabindex]',
+    ];
+    const seen = new Set();
+    interactiveSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(element => {
+            if (snapshot.interactive_elements.length >= 100 || seen.has(element) || !isVisible(element)) {
+                return;
+            }
+            seen.add(element);
+            snapshot.interactive_elements.push({
+                tag: element.tagName.toLowerCase(),
+                type: element.type || null,
+                id: element.id || null,
+                name: element.name || null,
+                text: safeText(element.textContent, 100),
+                value: safeText(element.value, 120) || null,
+                placeholder: element.placeholder || null,
+                href: element.href || null,
+                'aria-label': element.getAttribute('aria-label'),
+                'data-testid': element.getAttribute('data-testid'),
+                role: element.getAttribute('role'),
+                disabled: element.disabled || false,
+                class: element.className ? String(element.className).substring(0, 80) : null,
+                locator: getLocator(element),
+            });
+        });
+    });
+
+    document.querySelectorAll('h1, h2, h3').forEach((heading, index) => {
+        if (index >= 50) return;
+        const text = safeText(heading.textContent, 100);
+        if (text) {
+            snapshot.headings.push({ level: heading.tagName, text: text });
+        }
+    });
+
+    document.querySelectorAll('form').forEach((formElement, index) => {
+        if (index >= 10) return;
+        const inputs = formElement.querySelectorAll('input, select, textarea');
+        snapshot.forms.push({
+            index: index,
+            id: formElement.id || null,
+            locator: getLocator(formElement),
+            action: formElement.action || null,
+            method: formElement.method || 'get',
+            fields: inputs.length,
+            form_fields: collectFormFields(formElement),
+        });
+    });
+
+    document.querySelectorAll('nav a, [role="navigation"] a').forEach((link, index) => {
+        if (index >= 40) return;
+        const text = safeText(link.textContent, 50);
+        if (text) {
+            snapshot.nav_items.push({ text: text, href: link.href });
+        }
+    });
+
+    document.querySelectorAll('main, [role="main"], article, section').forEach((section, index) => {
+        if (index >= 30) return;
+        snapshot.main_sections.push({
+            tag: section.tagName.toLowerCase(),
+            id: section.id || null,
+            role: section.getAttribute('role'),
+            preview: safeText(section.textContent, 100),
+        });
+    });
+
+    document.querySelectorAll('a[href]').forEach((link, index) => {
+        if (index >= 50) return;
+        const text = safeText(link.textContent, 80);
+        if (text && link.href) {
+            snapshot.links.push({ text: text, href: link.href });
+        }
+    });
+
+    return JSON.stringify(snapshot);
+    """
+    result = driver.execute_script(js_code)
+    return json.loads(result)
+
+
+def _get_page_snapshot_data(force_refresh: bool = False) -> Dict[str, Any]:
+    sl = _get_selenium()
+    driver = sl.driver
+    cache_key = _get_snapshot_cache_key(driver)
+    if force_refresh or cache_key not in _PAGE_SNAPSHOT_CACHE:
+        _PAGE_SNAPSHOT_CACHE[cache_key] = _build_page_snapshot(driver)
+    return _PAGE_SNAPSHOT_CACHE[cache_key]
+
+
+def _format_interactive_elements(elements) -> str:
+    summary_lines = [f"Found {len(elements)} interactive elements:"]
+    for index, element in enumerate(elements, 1):
+        locator = element.get("locator", "no-locator")
+        tag = element.get("tag", "?")
+        text = element.get("text", "")[:50]
+        element_type = element.get("type", "")
+        description = f"  {index}. <{tag}"
+        if element_type:
+            description += f" type={element_type}"
+        description += f"> locator={locator}"
+        if text:
+            description += f' text="{text}"'
+        summary_lines.append(description)
+    return "\n".join(summary_lines)
+
+
+def _format_page_structure(snapshot: Dict[str, Any]) -> str:
+    lines = [
+        f"Page: {snapshot.get('title', 'Untitled')}",
+        f"URL: {snapshot.get('url', 'unknown')}",
+        "",
+        f"Headings ({len(snapshot.get('headings', []))}):",
+    ]
+    for heading in snapshot.get("headings", []):
+        lines.append(f"  {heading['level']}: {heading['text']}")
+    lines.append(f"\nForms ({len(snapshot.get('forms', []))}):")
+    for form in snapshot.get("forms", []):
+        lines.append(
+            f"  Form #{form['index']}: id={form['id']}, method={form['method']}, fields={form['fields']}"
+        )
+    lines.append(f"\nNavigation ({len(snapshot.get('nav_items', []))}):")
+    for nav_item in snapshot.get("nav_items", [])[:20]:
+        lines.append(f"  {nav_item['text']} → {nav_item['href']}")
+    return "\n".join(lines)
+
+
+def _resolve_form_fields(snapshot: Dict[str, Any], form_locator: str):
+    forms = snapshot.get("forms", [])
+    if not forms:
+        return []
+    if not form_locator or form_locator == "css=form":
+        return forms[0].get("form_fields", [])
+    if form_locator.startswith("id="):
+        form_id = form_locator[3:]
+        for form in forms:
+            if form.get("id") == form_id:
+                return form.get("form_fields", [])
+    return None
+
+
+@tool
+def get_page_snapshot(refresh: bool = False) -> str:
+    """Gets a cached combined snapshot of the current page."""
+    snapshot = _get_page_snapshot_data(force_refresh=bool(refresh))
+    lines = [
+        f"Page: {snapshot.get('title', 'Untitled')}",
+        f"URL: {snapshot.get('url', 'unknown')}",
+        f"Interactive elements: {len(snapshot.get('interactive_elements', []))}",
+        f"Forms: {len(snapshot.get('forms', []))}",
+        f"Links: {len(snapshot.get('links', []))}",
+        "",
+        "Headings:",
+    ]
+    headings = snapshot.get("headings", [])[:10]
+    if headings:
+        for heading in headings:
+            lines.append(f"  {heading['level']}: {heading['text']}")
+    else:
+        lines.append("  none")
+    lines.append("")
+    lines.append("Text preview:")
+    lines.append(snapshot.get("text", "")[:500] or "<empty>")
+    return "\n".join(lines)
+
+
 @tool
 def get_interactive_elements() -> str:
     """Extracts all interactive elements from the current page.
@@ -51,95 +300,8 @@ def get_interactive_elements() -> str:
         JSON-formatted list of interactive elements with their locators,
         types, text, and attributes.
     """
-    sl = _get_selenium()
-    driver = sl.driver
-
-    js_code = """
-    function getInteractiveElements() {
-        const selectors = [
-            'a[href]',
-            'button',
-            'input',
-            'select',
-            'textarea',
-            '[role="button"]',
-            '[role="link"]',
-            '[role="tab"]',
-            '[role="menuitem"]',
-            '[onclick]',
-            '[tabindex]',
-        ];
-
-        const elements = [];
-        const seen = new Set();
-
-        selectors.forEach(selector => {
-            document.querySelectorAll(selector).forEach(el => {
-                if (seen.has(el)) return;
-                seen.add(el);
-
-                const rect = el.getBoundingClientRect();
-                const isVisible = rect.width > 0 && rect.height > 0 &&
-                                  window.getComputedStyle(el).display !== 'none' &&
-                                  window.getComputedStyle(el).visibility !== 'hidden';
-
-                if (!isVisible) return;
-
-                const info = {
-                    tag: el.tagName.toLowerCase(),
-                    type: el.type || null,
-                    id: el.id || null,
-                    name: el.name || null,
-                    text: (el.textContent || '').trim().substring(0, 100),
-                    value: el.value || null,
-                    placeholder: el.placeholder || null,
-                    href: el.href || null,
-                    'aria-label': el.getAttribute('aria-label'),
-                    'data-testid': el.getAttribute('data-testid'),
-                    role: el.getAttribute('role'),
-                    disabled: el.disabled || false,
-                    class: el.className ? el.className.substring(0, 80) : null,
-                };
-
-                // Build best locator
-                if (info.id) {
-                    info.locator = 'id=' + info.id;
-                } else if (info['data-testid']) {
-                    info.locator = 'css=[data-testid="' + info['data-testid'] + '"]';
-                } else if (info.name) {
-                    info.locator = 'name=' + info.name;
-                } else if (info['aria-label']) {
-                    info.locator = 'css=[aria-label="' + info['aria-label'] + '"]';
-                }
-
-                elements.push(info);
-            });
-        });
-
-        return elements.slice(0, 100);  // Limit to prevent huge outputs
-    }
-    return JSON.stringify(getInteractiveElements());
-    """
-
-    result = driver.execute_script(js_code)
-    try:
-        elements = json.loads(result)
-        summary_lines = [f"Found {len(elements)} interactive elements:"]
-        for i, el in enumerate(elements, 1):
-            locator = el.get("locator", "no-locator")
-            tag = el.get("tag", "?")
-            text = el.get("text", "")[:50]
-            el_type = el.get("type", "")
-            desc = f"  {i}. <{tag}"
-            if el_type:
-                desc += f" type={el_type}"
-            desc += f"> locator={locator}"
-            if text:
-                desc += f' text="{text}"'
-            summary_lines.append(desc)
-        return "\n".join(summary_lines)
-    except (json.JSONDecodeError, TypeError):
-        return f"Raw interactive elements: {result}"
+    snapshot = _get_page_snapshot_data()
+    return _format_interactive_elements(snapshot.get("interactive_elements", []))
 
 
 @tool
@@ -152,80 +314,8 @@ def get_page_structure() -> str:
     Returns:
         Structured overview of the page.
     """
-    sl = _get_selenium()
-    driver = sl.driver
-
-    js_code = """
-    function getPageStructure() {
-        const structure = {
-            title: document.title,
-            url: window.location.href,
-            headings: [],
-            forms: [],
-            nav_items: [],
-            main_sections: [],
-        };
-
-        // Headings
-        document.querySelectorAll('h1, h2, h3').forEach(h => {
-            const text = (h.textContent || '').trim().substring(0, 100);
-            if (text) structure.headings.push({level: h.tagName, text: text});
-        });
-
-        // Forms
-        document.querySelectorAll('form').forEach((f, i) => {
-            const inputs = f.querySelectorAll('input, select, textarea');
-            structure.forms.push({
-                index: i,
-                id: f.id || null,
-                action: f.action || null,
-                method: f.method || 'get',
-                fields: inputs.length,
-            });
-        });
-
-        // Navigation
-        document.querySelectorAll('nav a, [role="navigation"] a').forEach(a => {
-            const text = (a.textContent || '').trim().substring(0, 50);
-            if (text) structure.nav_items.push({text: text, href: a.href});
-        });
-
-        // Main content areas
-        document.querySelectorAll('main, [role="main"], article, section').forEach(s => {
-            const text = (s.textContent || '').trim().substring(0, 200);
-            structure.main_sections.push({
-                tag: s.tagName.toLowerCase(),
-                id: s.id || null,
-                role: s.getAttribute('role'),
-                preview: text.substring(0, 100),
-            });
-        });
-
-        return structure;
-    }
-    return JSON.stringify(getPageStructure());
-    """
-
-    result = driver.execute_script(js_code)
-    try:
-        structure = json.loads(result)
-        lines = [
-            f"Page: {structure.get('title', 'Untitled')}",
-            f"URL: {structure.get('url', 'unknown')}",
-            "",
-            f"Headings ({len(structure.get('headings', []))}):",
-        ]
-        for h in structure.get("headings", []):
-            lines.append(f"  {h['level']}: {h['text']}")
-        lines.append(f"\nForms ({len(structure.get('forms', []))}):")
-        for f in structure.get("forms", []):
-            lines.append(f"  Form #{f['index']}: id={f['id']}, method={f['method']}, fields={f['fields']}")
-        lines.append(f"\nNavigation ({len(structure.get('nav_items', []))}):")
-        for n in structure.get("nav_items", [])[:20]:
-            lines.append(f"  {n['text']} → {n['href']}")
-        return "\n".join(lines)
-    except (json.JSONDecodeError, TypeError):
-        return f"Raw page structure: {result}"
+    snapshot = _get_page_snapshot_data()
+    return _format_page_structure(snapshot)
 
 
 @tool
@@ -235,13 +325,8 @@ def get_page_text_content() -> str:
     Returns:
         The visible text content (truncated for large pages).
     """
-    sl = _get_selenium()
-    driver = sl.driver
-
-    js_code = """
-    return document.body ? document.body.innerText.substring(0, 5000) : '';
-    """
-    text = driver.execute_script(js_code)
+    snapshot = _get_page_snapshot_data()
+    text = snapshot.get("text", "")
     if text and len(text) > 5000:
         text = text[:5000] + "\n... [truncated]"
     return f"Page text content:\n{text}"
@@ -269,28 +354,12 @@ def get_all_links() -> str:
     Returns:
         List of links with their text and href attributes.
     """
-    sl = _get_selenium()
-    driver = sl.driver
-
-    js_code = """
-    const links = [];
-    document.querySelectorAll('a[href]').forEach(a => {
-        const text = (a.textContent || '').trim().substring(0, 80);
-        if (text && a.href) {
-            links.push({text: text, href: a.href});
-        }
-    });
-    return JSON.stringify(links.slice(0, 50));
-    """
-    result = driver.execute_script(js_code)
-    try:
-        links = json.loads(result)
-        lines = [f"Found {len(links)} links:"]
-        for i, link in enumerate(links, 1):
-            lines.append(f"  {i}. [{link['text']}] → {link['href']}")
-        return "\n".join(lines)
-    except (json.JSONDecodeError, TypeError):
-        return f"Raw links data: {result}"
+    snapshot = _get_page_snapshot_data()
+    links = snapshot.get("links", [])
+    lines = [f"Found {len(links)} links:"]
+    for index, link in enumerate(links, 1):
+        lines.append(f"  {index}. [{link['text']}] → {link['href']}")
+    return "\n".join(lines)
 
 
 @tool
@@ -303,48 +372,45 @@ def get_form_fields(form_locator: str = "css=form") -> str:
     Returns:
         List of form fields with their types, names, and attributes.
     """
-    sl = _get_selenium()
-    driver = sl.driver
+    snapshot = _get_page_snapshot_data()
+    fields = _resolve_form_fields(snapshot, form_locator)
+    if fields is None:
+        sl = _get_selenium()
+        driver = sl.driver
+        css = form_locator
+        if form_locator.startswith("css="):
+            css = form_locator[4:]
+        elif form_locator.startswith("id="):
+            css = f"#{form_locator[3:]}"
 
-    # Convert RF locator to CSS if needed
-    css = form_locator
-    if form_locator.startswith("css="):
-        css = form_locator[4:]
-    elif form_locator.startswith("id="):
-        css = f"#{form_locator[3:]}"
-
-    js_code = f"""
-    const form = document.querySelector('{css}');
-    if (!form) return JSON.stringify([]);
-    const fields = [];
-    form.querySelectorAll('input, select, textarea, button').forEach(el => {{
-        fields.push({{
-            tag: el.tagName.toLowerCase(),
-            type: el.type || null,
-            name: el.name || null,
-            id: el.id || null,
-            placeholder: el.placeholder || null,
-            required: el.required || false,
-            value: el.value || null,
-            label: el.labels && el.labels.length > 0 ? el.labels[0].textContent.trim() : null,
+        js_code = f"""
+        const form = document.querySelector('{css}');
+        if (!form) return JSON.stringify([]);
+        const fields = [];
+        form.querySelectorAll('input, select, textarea, button').forEach(el => {{
+            fields.push({{
+                tag: el.tagName.toLowerCase(),
+                type: el.type || null,
+                name: el.name || null,
+                id: el.id || null,
+                placeholder: el.placeholder || null,
+                required: el.required || false,
+                value: el.value || null,
+                label: el.labels && el.labels.length > 0 ? el.labels[0].textContent.trim() : null,
+            }});
         }});
-    }});
-    return JSON.stringify(fields);
-    """
+        return JSON.stringify(fields);
+        """
+        fields = json.loads(driver.execute_script(js_code))
 
-    result = driver.execute_script(js_code)
-    try:
-        fields = json.loads(result)
-        lines = [f"Form fields ({len(fields)}):"]
-        for f in fields:
-            name = f.get("name") or f.get("id") or "unnamed"
-            ftype = f.get("type") or f.get("tag")
-            label = f.get("label") or f.get("placeholder") or ""
-            req = " [REQUIRED]" if f.get("required") else ""
-            lines.append(f"  - {name} ({ftype}){req}: {label}")
-        return "\n".join(lines)
-    except (json.JSONDecodeError, TypeError):
-        return f"Raw form fields: {result}"
+    lines = [f"Form fields ({len(fields)}):"]
+    for field in fields:
+        name = field.get("name") or field.get("id") or "unnamed"
+        field_type = field.get("type") or field.get("tag")
+        label = field.get("label") or field.get("placeholder") or ""
+        required = " [REQUIRED]" if field.get("required") else ""
+        lines.append(f"  - {name} ({field_type}){required}: {label}")
+    return "\n".join(lines)
 
 
 @tool
@@ -375,6 +441,7 @@ def check_page_errors() -> str:
 # ---------------------------------------------------------------------------
 
 BROWSER_ANALYSIS_TOOLS = instrument_tool_list([
+    get_page_snapshot,
     get_interactive_elements,
     get_page_structure,
     get_page_text_content,

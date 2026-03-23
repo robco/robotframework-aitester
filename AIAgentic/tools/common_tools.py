@@ -24,10 +24,12 @@ from robot.api import logger as rf_logger
 from ..executor import StepStatus, record_step as record_step_impl, get_active_session
 
 logger = logging.getLogger(__name__)
+_SCREENSHOT_OUTPUT_CACHE = {}
 
 WEB_UI_INTERACTION_ACTIONS = {
     "selenium_open_browser",
     "selenium_go_to",
+    "selenium_go_back",
     "selenium_reload_page",
     "selenium_click_element",
     "selenium_click_button",
@@ -67,8 +69,13 @@ WEB_UI_STATE_ACTIONS = {
     "selenium_wait_until_page_contains_element",
     "selenium_capture_page_screenshot",
     "selenium_execute_javascript",
+    "get_page_snapshot",
     "get_page_structure",
     "get_interactive_elements",
+    "get_page_text_content",
+    "get_all_links",
+    "get_form_fields",
+    "check_page_errors",
 }
 
 MOBILE_UI_INTERACTION_ACTIONS = {
@@ -89,6 +96,36 @@ MOBILE_UI_STATE_ACTIONS = {
     "appium_element_should_not_be_visible",
     "appium_element_should_contain_text",
     "appium_wait_until_element_is_visible",
+}
+
+WEB_UI_MUTATION_ACTIONS = {
+    "selenium_open_browser",
+    "selenium_close_browser",
+    "selenium_close_all_browsers",
+    "selenium_go_to",
+    "selenium_go_back",
+    "selenium_reload_page",
+    "selenium_click_element",
+    "selenium_click_button",
+    "selenium_click_link",
+    "selenium_input_text",
+    "selenium_input_password",
+    "selenium_clear_element_text",
+    "selenium_select_from_list_by_label",
+    "selenium_select_from_list_by_value",
+    "selenium_select_checkbox",
+    "selenium_unselect_checkbox",
+    "selenium_mouse_over",
+    "selenium_press_keys",
+    "selenium_scroll_element_into_view",
+    "selenium_wait_until_element_is_visible",
+    "selenium_wait_until_element_is_enabled",
+    "selenium_wait_until_page_contains",
+    "selenium_wait_until_page_contains_element",
+    "selenium_execute_javascript",
+    "selenium_switch_window",
+    "selenium_select_frame",
+    "selenium_unselect_frame",
 }
 
 
@@ -117,6 +154,17 @@ def _track_ui_action(session, action_name: str, status: StepStatus) -> None:
             session.ui_state_checks_by_step[step_number] = (
                 session.ui_state_checks_by_step.get(step_number, 0) + 1
             )
+
+
+def _invalidate_browser_snapshot_cache(action_name: str, status: StepStatus) -> None:
+    if status is not StepStatus.PASSED or action_name not in WEB_UI_MUTATION_ACTIONS:
+        return
+    try:
+        from .browser_analysis_tools import invalidate_page_snapshot_cache
+
+        invalidate_page_snapshot_cache()
+    except Exception as exc:
+        logger.debug("Unable to invalidate browser analysis cache: %s", exc)
 
 
 def _get_rf_output_dir():
@@ -304,6 +352,14 @@ def _log_agentic_step_to_rf(
     """Emit an agentic step as a Robot Framework keyword entry."""
     try:
         bi = BuiltIn()
+        normalized_screenshot_path = screenshot_path or ""
+        if normalized_screenshot_path:
+            try:
+                copied_target = _ensure_screenshot_in_output_dir(normalized_screenshot_path)
+                if copied_target:
+                    normalized_screenshot_path = copied_target
+            except Exception as exc:
+                logger.debug("Unable to normalize screenshot path before RF logging: %s", exc)
         args = [
             action,
             description,
@@ -311,7 +367,7 @@ def _log_agentic_step_to_rf(
             f"{duration_ms:.0f}",
             assertion_message or "",
             error_message or "",
-            screenshot_path or "",
+            normalized_screenshot_path,
         ]
         if high_level_step_number is not None or high_level_step_description:
             args.extend(
@@ -357,6 +413,9 @@ def _ensure_screenshot_in_output_dir(screenshot_path: Optional[str]) -> Optional
     if not screenshot_path:
         return None
     filename = os.path.basename(screenshot_path)
+    normalized_source = os.path.abspath(
+        os.path.expanduser(os.path.expandvars(str(screenshot_path)))
+    )
     try:
         output_dir = BuiltIn().get_variable_value("${OUTPUT_DIR}")
     except RobotNotRunningError:
@@ -364,9 +423,36 @@ def _ensure_screenshot_in_output_dir(screenshot_path: Optional[str]) -> Optional
     if not output_dir:
         output_dir = os.getcwd()
     target = os.path.join(output_dir, filename)
+    if os.path.abspath(normalized_source) == os.path.abspath(target):
+        return target
     try:
-        if os.path.exists(screenshot_path) and os.path.abspath(screenshot_path) != os.path.abspath(target):
-            shutil.copy2(screenshot_path, target)
+        source_stat = os.stat(normalized_source)
+    except OSError:
+        source_stat = None
+    cache_key = None
+    if source_stat is not None:
+        cache_key = (
+            os.path.realpath(normalized_source),
+            os.path.realpath(target),
+            int(source_stat.st_mtime_ns),
+            int(source_stat.st_size),
+        )
+        cached_target = _SCREENSHOT_OUTPUT_CACHE.get(cache_key)
+        if cached_target and os.path.exists(cached_target):
+            return cached_target
+    try:
+        if os.path.exists(normalized_source):
+            should_copy = True
+            if os.path.exists(target) and source_stat is not None:
+                target_stat = os.stat(target)
+                should_copy = (
+                    int(target_stat.st_mtime_ns) < int(source_stat.st_mtime_ns)
+                    or int(target_stat.st_size) != int(source_stat.st_size)
+                )
+            if should_copy:
+                shutil.copy2(normalized_source, target)
+            if cache_key is not None:
+                _SCREENSHOT_OUTPUT_CACHE[cache_key] = target
     except Exception as exc:
         logger.debug("Unable to copy screenshot to output dir: %s", exc)
     return target
@@ -515,6 +601,7 @@ def _record_tool_step(
             error_message=error_message,
         )
         _track_ui_action(session, action, status)
+    _invalidate_browser_snapshot_cache(action, status)
     _log_agentic_step_to_rf(
         action=action,
         description=description,

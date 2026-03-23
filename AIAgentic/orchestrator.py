@@ -56,6 +56,8 @@ class AgentOrchestrator:
     the supervisor, enabling it to delegate tasks naturally.
     """
 
+    USER_DEFINED_STEPS_MARKER = "USER-DEFINED TEST STEPS (MAIN FLOW, HIGHEST PRIORITY)"
+
     def __init__(self, model, available_libraries, verbose=False):
         """Initialize the orchestrator with model and available library config.
 
@@ -236,19 +238,120 @@ class AgentOrchestrator:
             description="Senior QA Test Lead coordinating specialist agents",
         )
 
-    def run(self, objective, app_context, max_iterations=50, test_mode="web"):
-        """Execute an agentic test session.
+    @staticmethod
+    def _has_user_defined_steps(objective, high_level_steps=None) -> bool:
+        if high_level_steps:
+            return True
+        return AgentOrchestrator.USER_DEFINED_STEPS_MARKER in str(objective or "")
 
-        Args:
-            objective: The test objective from the user.
-            app_context: Application context description.
-            max_iterations: Maximum agent iterations.
-            test_mode: Testing mode (web, api, mobile).
+    def _get_executor(self, test_mode: str):
+        mode = str(test_mode or "").strip().lower()
+        if mode == "web":
+            return self.web_executor
+        if mode == "api":
+            return self.api_executor
+        if mode == "mobile":
+            return self.mobile_executor
+        return None
 
-        Returns:
-            The final report/result as a string.
-        """
-        # Build the prompt for the supervisor
+    @staticmethod
+    def _format_high_level_steps(high_level_steps) -> str:
+        if not high_level_steps:
+            return ""
+        return "\n".join(
+            f"{index}. {step}"
+            for index, step in enumerate(high_level_steps, start=1)
+        )
+
+    def _build_planner_prompt(
+        self,
+        objective: str,
+        app_context: str,
+        test_mode: str,
+        max_iterations: int,
+    ) -> str:
+        return f"""
+Test Objective: {objective}
+
+Application Context: {app_context}
+
+Test Mode: {test_mode}
+Max Iterations: {max_iterations}
+
+Return only the structured JSON plan requested by your system prompt.
+"""
+
+    def _build_executor_prompt(
+        self,
+        objective: str,
+        app_context: str,
+        test_mode: str,
+        max_iterations: int,
+        plan: str = "",
+        high_level_steps=None,
+        exploratory: bool = False,
+        focus_areas: str = "",
+    ) -> str:
+        formatted_steps = self._format_high_level_steps(high_level_steps)
+        instructions = [
+            f"Test Objective: {objective}",
+            "",
+            f"Application Context: {app_context}",
+            "",
+            f"Test Mode: {test_mode}",
+            f"Max Iterations: {max_iterations}",
+        ]
+
+        if exploratory:
+            instructions.extend(
+                [
+                    "",
+                    f"Focus Areas: {focus_areas or 'general exploration'}",
+                    "",
+                    "Instructions:",
+                    "1. Explore the application directly without a planner or supervisor handoff.",
+                    "2. Focus on the listed areas, exercise main flows, and verify outcomes with tools.",
+                    "3. Return a brief completion status (1-2 sentences).",
+                ]
+            )
+            return "\n".join(instructions)
+
+        if formatted_steps:
+            instructions.extend(
+                [
+                    "",
+                    "User-defined Main Flow:",
+                    formatted_steps,
+                    "",
+                    "Instructions:",
+                    "1. Execute the numbered steps in order without requesting a separate plan.",
+                    "2. Treat the numbered steps as the primary flow and use direct tool calls to complete them.",
+                    "3. Return a brief completion status (1-2 sentences).",
+                ]
+            )
+            return "\n".join(instructions)
+
+        instructions.extend(
+            [
+                "",
+                "Execution Plan:",
+                plan,
+                "",
+                "Instructions:",
+                "1. Execute this plan directly in priority order.",
+                "2. Use the available tools to complete and verify each scenario.",
+                "3. Return a brief completion status (1-2 sentences).",
+            ]
+        )
+        return "\n".join(instructions)
+
+    def _run_via_supervisor(
+        self,
+        objective,
+        app_context,
+        max_iterations=50,
+        test_mode="web",
+    ):
         available = ", ".join(self.available_libraries.keys())
 
         prompt = f"""
@@ -268,14 +371,91 @@ Instructions:
    The official report is provided by Robot Framework's built-in log/report.
 """
         logger.info(
-            "Starting agentic test: mode=%s, max_iter=%d",
+            "Starting agentic test via supervisor: mode=%s, max_iter=%d",
             test_mode,
             max_iterations,
         )
         result = self.supervisor(prompt)
         return str(result)
 
-    def run_exploration(self, app_context, focus_areas=None, max_iterations=100):
+    def _run_direct(
+        self,
+        objective,
+        app_context,
+        max_iterations=50,
+        test_mode="web",
+        high_level_steps=None,
+        exploratory: bool = False,
+        focus_areas: str = "",
+    ):
+        executor = self._get_executor(test_mode)
+        if executor is None:
+            return self._run_via_supervisor(
+                objective=objective,
+                app_context=app_context,
+                max_iterations=max_iterations,
+                test_mode=test_mode,
+            )
+
+        plan = ""
+        if not exploratory and not self._has_user_defined_steps(objective, high_level_steps):
+            planner_prompt = self._build_planner_prompt(
+                objective=objective,
+                app_context=app_context,
+                test_mode=test_mode,
+                max_iterations=max_iterations,
+            )
+            logger.info("Direct execution → Planner: %s", objective[:100])
+            plan = str(self.planner(planner_prompt))
+
+        executor_prompt = self._build_executor_prompt(
+            objective=objective,
+            app_context=app_context,
+            test_mode=test_mode,
+            max_iterations=max_iterations,
+            plan=plan,
+            high_level_steps=high_level_steps,
+            exploratory=exploratory,
+            focus_areas=focus_areas,
+        )
+        logger.info("Direct execution → %s executor", test_mode)
+        result = executor(executor_prompt)
+        return str(result)
+
+    def run(
+        self,
+        objective,
+        app_context,
+        max_iterations=50,
+        test_mode="web",
+        high_level_steps=None,
+    ):
+        """Execute an agentic test session.
+
+        Args:
+            objective: The test objective from the user.
+            app_context: Application context description.
+            max_iterations: Maximum agent iterations.
+            test_mode: Testing mode (web, api, mobile).
+
+        Returns:
+            The final report/result as a string.
+        """
+        return self._run_direct(
+            objective=objective,
+            app_context=app_context,
+            max_iterations=max_iterations,
+            test_mode=test_mode,
+            high_level_steps=high_level_steps,
+        )
+
+    def run_exploration(
+        self,
+        app_context,
+        focus_areas=None,
+        max_iterations=100,
+        test_mode="web",
+    ):
         """Execute an exploratory agentic test session.
 
         Args:
@@ -286,31 +466,16 @@ Instructions:
         Returns:
             The exploration report as a string.
         """
-        available = ", ".join(self.available_libraries.keys())
         focus = focus_areas or "general exploration"
-
-        prompt = f"""
-Test Objective: EXPLORATORY TESTING
-
-Application Context: {app_context}
-
-Focus Areas: {focus}
-Available Libraries: {available}
-Max Iterations: {max_iterations}
-
-Instructions:
-1. Plan an exploratory test approach covering the focus areas.
-2. Systematically explore the application:
-   - Navigate through main flows
-   - Try unexpected inputs and actions
-   - Test error handling and edge cases
-   - Look for UI/UX issues
-3. Document findings with evidence in your actions.
-4. Return a brief completion status (1-2 sentences). Do NOT generate a standalone report.
-"""
-        logger.info("Starting exploratory test: focus=%s", focus)
-        result = self.supervisor(prompt)
-        return str(result)
+        logger.info("Starting exploratory test: mode=%s, focus=%s", test_mode, focus)
+        return self._run_direct(
+            objective="EXPLORATORY TESTING",
+            app_context=app_context,
+            max_iterations=max_iterations,
+            test_mode=test_mode,
+            exploratory=True,
+            focus_areas=focus,
+        )
 
     def _create_callback_handler(self, agent_name):
         """Create a callback handler for an agent.

@@ -38,6 +38,7 @@ Tool usage:
 - Use `selenium_input_text` to fill form fields
 - Use `selenium_element_should_be_visible` to check element presence
 - Use `selenium_get_text` to retrieve element text
+- Prefer `get_page_snapshot` for page analysis instead of chaining multiple analysis tools
 - Use `selenium_capture_page_screenshot` to capture evidence
 - If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
   Before executing actions for each step, call `start_high_level_step` with the step number
