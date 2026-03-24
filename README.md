@@ -303,9 +303,12 @@ robotframework-aiagentic uses only Robot Framework v7.4+ built-in reporting
 `Run Agentic*` keywords return a short completion status; review details in the RF log.
 
 When you provide user-defined numbered test steps (via the `test_steps` argument
-or `${TEST_STEPS}` variable), those steps are treated as the main flow and
+or common step variables such as `${TEST_STEPS}` / `${AI_STEPS}`), those steps are treated as the main flow and
 agentic actions are grouped under them in
 the RF log with embedded screenshots for readability.
+
+If `test_objective` is left empty and no numbered steps are available, the
+`Run Agentic*` keywords now fail fast instead of silently improvising a generic flow.
 
 If the agent's completion message explicitly reports a failed status,
 `Run Agentic*` will fail the Robot test to keep the RF result consistent.

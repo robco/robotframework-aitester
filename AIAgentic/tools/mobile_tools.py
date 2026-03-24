@@ -96,11 +96,9 @@ def _build_mobile_snapshot(source: str) -> dict:
     try:
         root = ET.fromstring(source)
     except ET.ParseError:
-        return {
-            "text_preview": [],
-            "interruptions": [],
-            "parse_error": "Unable to parse Appium page source",
-        }
+        snapshot = _empty_mobile_snapshot()
+        snapshot["parse_error"] = "Unable to parse Appium page source"
+        return snapshot
 
     text_preview = []
     interruptions = []
@@ -151,13 +149,27 @@ def _build_mobile_snapshot(source: str) -> dict:
     }
 
 
+def _empty_mobile_snapshot() -> Dict[str, Any]:
+    return {
+        "text_preview": [],
+        "interruptions": [],
+        "parse_error": None,
+    }
+
+
 def _get_mobile_snapshot_data(force_refresh: bool = False) -> Dict[str, Any]:
     al = _get_appium()
     driver = al._current_application()
     cache_key = _get_snapshot_cache_key(driver)
     if force_refresh or cache_key not in _MOBILE_SNAPSHOT_CACHE:
-        source = al.get_source()
-        snapshot = _build_mobile_snapshot(source)
+        try:
+            source = al.get_source()
+            snapshot = _build_mobile_snapshot(source)
+        except Exception as exc:
+            logger.warning("Mobile source retrieval failed, using fallback snapshot: %s", exc)
+            source = ""
+            snapshot = _empty_mobile_snapshot()
+            snapshot["parse_error"] = f"Unable to retrieve Appium page source: {exc}"
         snapshot.update(
             {
                 "source": source,
@@ -762,6 +774,11 @@ def appium_get_source(refresh: bool = False) -> str:
     """
     snapshot = _get_mobile_snapshot_data(force_refresh=bool(refresh))
     source = snapshot.get("source", "")
+    if not source:
+        note = snapshot.get("parse_error")
+        if note:
+            return f"Page source unavailable: {note}"
+        return "Page source unavailable"
     if len(source) > 5000:
         source = source[:5000] + "\n... [truncated]"
     return f"Page source:\n{source}"
@@ -771,9 +788,6 @@ def appium_get_source(refresh: bool = False) -> str:
 def appium_get_view_snapshot(refresh: bool = False) -> str:
     """Gets a compact summary of the current mobile screen."""
     snapshot = _get_mobile_snapshot_data(force_refresh=bool(refresh))
-    if snapshot["parse_error"]:
-        return snapshot["parse_error"]
-
     lines = []
     if snapshot.get("platform"):
         lines.append(f"Platform: {snapshot['platform']}")
@@ -785,6 +799,8 @@ def appium_get_view_snapshot(refresh: bool = False) -> str:
         lines.append(f"Activity: {snapshot['activity']}")
     if snapshot.get("package"):
         lines.append(f"Package: {snapshot['package']}")
+    if snapshot.get("parse_error"):
+        lines.append(f"Screen analysis note: {snapshot['parse_error']}")
     if lines:
         lines.append("")
 

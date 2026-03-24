@@ -41,11 +41,12 @@ def test_extract_user_defined_steps_from_list_objective():
         "1. Click Login",
         "2. Verify dashboard is visible",
     ]
-    objective_text, steps, steps_text = agentic._extract_user_defined_steps(
+    objective_text, steps, steps_text, steps_source = agentic._extract_user_defined_steps(
         test_objective=objective,
         test_steps=None,
     )
     assert steps_text is None
+    assert steps_source is None
     assert "1. Click Login" in objective_text
     assert steps == ["Click Login", "Verify dashboard is visible"]
 
@@ -72,12 +73,70 @@ def test_extract_user_defined_steps_from_numbered_list():
         "1. Click button",
         "2. Verify result",
     ]
-    objective, steps, _ = agentic._extract_user_defined_steps(
+    objective, steps, _, steps_source = agentic._extract_user_defined_steps(
         test_objective="Test objective",
         test_steps=steps_list,
     )
     assert steps == ["Click button", "Verify result"]
+    assert steps_source == "argument"
     assert "1. Click button" in objective
+
+
+def test_extract_user_defined_steps_uses_ai_steps_variable(monkeypatch):
+    agentic = AIAgentic()
+
+    class DummyBuiltIn:
+        def get_variable_value(self, variable_name):
+            if variable_name == "${AI_STEPS}":
+                return [
+                    "Execute these test steps.",
+                    "Make sure to create screenshot after each executed step.",
+                    "1. Open Internet section",
+                    "2. Verify address availability",
+                ]
+            return None
+
+    monkeypatch.setattr("AIAgentic.library.BuiltIn", lambda: DummyBuiltIn())
+
+    objective, steps, steps_text, steps_source = agentic._extract_user_defined_steps(
+        test_objective="",
+        test_steps=None,
+    )
+
+    assert steps_source == "${AI_STEPS}"
+    assert "Make sure to create screenshot after each executed step." in objective
+    assert steps == ["Open Internet section", "Verify address availability"]
+    assert steps_text is not None
+
+
+def test_extract_user_defined_steps_handles_stringified_list_steps():
+    agentic = AIAgentic()
+
+    stringified_steps = (
+        "['Execute these test steps.', "
+        "'Make sure to create screenshot after each executed step.', "
+        "'1. Open Internet section', "
+        "'2. Verify address availability']"
+    )
+
+    objective, steps, steps_text, steps_source = agentic._extract_user_defined_steps(
+        test_objective="Verify address coverage",
+        test_steps=stringified_steps,
+    )
+
+    assert steps_source == "argument"
+    assert "1. Open Internet section" in objective
+    assert "Make sure to create screenshot after each executed step." in objective
+    assert steps == ["Open Internet section", "Verify address availability"]
+    assert steps_text is not None
+
+
+def test_run_agentic_test_requires_objective_or_steps(monkeypatch):
+    agentic = AIAgentic()
+    monkeypatch.setattr(agentic, "_ensure_orchestrator", lambda: None)
+
+    with pytest.raises(ValueError, match="requires a non-empty test_objective or numbered test_steps"):
+        agentic.run_agentic_test(test_objective="")
 
 
 def test_detect_failure_in_result():

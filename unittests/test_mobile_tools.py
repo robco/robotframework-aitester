@@ -57,6 +57,15 @@ class DummyAppium:
         self.reset += 1
 
 
+class FaultySourceAppium(DummyAppium):
+    def __init__(self):
+        super().__init__([EMPTY_SOURCE])
+
+    def get_source(self):
+        self.source_calls += 1
+        raise RuntimeError("socket hang up")
+
+
 def test_appium_get_view_snapshot_reports_possible_interruptions(monkeypatch):
     mobile_tools.invalidate_mobile_snapshot_cache()
     dummy = DummyAppium([PERMISSION_SOURCE])
@@ -130,3 +139,17 @@ def test_appium_reset_application_allows_explicit_user_requested_restart(monkeyp
         assert dummy.reset == 1
     finally:
         set_active_session(None)
+
+
+def test_appium_get_view_snapshot_falls_back_when_source_unavailable(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = FaultySourceAppium()
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+
+    snapshot = mobile_tools.appium_get_view_snapshot()
+    source = mobile_tools.appium_get_source()
+
+    assert "Screen analysis note: Unable to retrieve Appium page source: socket hang up" in snapshot
+    assert "Screen text preview:" in snapshot
+    assert source == "Page source unavailable: Unable to retrieve Appium page source: socket hang up"
+    assert dummy.source_calls == 1

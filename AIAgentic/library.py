@@ -22,6 +22,7 @@ such as Run Agentic Test, Run Agentic Exploration, and Run Agentic API Test
 that testers invoke from .robot files.
 """
 
+import ast
 import hashlib
 import html
 import logging
@@ -77,6 +78,12 @@ class AIAgentic:
 
     _SCREENSHOT_SUBDIR = "agentic-screenshots"
     _INLINE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"}
+    _AUTO_TEST_STEPS_VARIABLES = (
+        "${TEST_STEPS}",
+        "${AI_STEPS}",
+        "${AGENTIC_TEST_STEPS}",
+        "${USER_TEST_STEPS}",
+    )
 
     def __init__(
         self,
@@ -621,53 +628,108 @@ class AIAgentic:
             steps.append(current.rstrip())
         return steps
 
+    @staticmethod
+    def _normalize_text_value(value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (list, tuple)):
+            return "\n".join(str(item) for item in value)
+        return str(value)
+
+    @staticmethod
+    def _normalize_steps_value(value) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, (list, tuple)):
+            items = [str(item) for item in value]
+            if any(re.match(r"^\s*\d+[\.\)]\s+", item) for item in items):
+                return "\n".join(items)
+            return "\n".join(f"{idx + 1}. {item}" for idx, item in enumerate(items))
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                try:
+                    parsed = ast.literal_eval(stripped)
+                except (ValueError, SyntaxError):
+                    return stripped
+                if isinstance(parsed, (list, tuple)):
+                    return AIAgentic._normalize_steps_value(parsed)
+            return stripped
+        return str(value)
+
+    def _resolve_implicit_test_steps(self) -> Tuple[Optional[str], Optional[str]]:
+        try:
+            bi = BuiltIn()
+        except (RuntimeError, RobotNotRunningError):
+            return None, None
+
+        for variable_name in self._AUTO_TEST_STEPS_VARIABLES:
+            try:
+                candidate = bi.get_variable_value(variable_name)
+            except (RuntimeError, RobotNotRunningError):
+                return None, None
+            normalized = self._normalize_steps_value(candidate)
+            if normalized and self._parse_numbered_steps(normalized):
+                return normalized, variable_name
+        return None, None
+
+    @staticmethod
+    def _join_non_empty_sections(*parts: str) -> str:
+        sections = [str(part).strip() for part in parts if str(part or "").strip()]
+        return "\n\n".join(sections)
+
+    def _ensure_objective_or_steps_present(
+        self,
+        keyword_name: str,
+        objective: str,
+        high_level_steps: List[str],
+    ) -> None:
+        if high_level_steps or str(objective or "").strip():
+            return
+        raise ValueError(
+            f"{keyword_name} requires a non-empty test_objective or numbered "
+            "test_steps. Pass test_steps=${TEST_STEPS} (or ${AI_STEPS}) "
+            "explicitly, or include numbered steps directly in test_objective."
+        )
+
+    def _log_implicit_test_steps_source(
+        self,
+        provided_test_steps,
+        source_name: Optional[str],
+    ) -> None:
+        if provided_test_steps is not None or not source_name:
+            return
+        rf_logger.info(
+            f"Detected numbered test steps from {source_name}. "
+            f"Pass test_steps={source_name} explicitly to avoid ambiguity."
+        )
+
     def _extract_user_defined_steps(
         self,
         test_objective: str,
         test_steps: Optional[str],
-    ) -> Tuple[str, List[str], Optional[str]]:
-        def normalize_text(value):
-            if value is None:
-                return ""
-            if isinstance(value, (list, tuple)):
-                return "\n".join(str(item) for item in value)
-            return str(value)
-
-        def normalize_steps(value):
-            if value is None:
-                return None
-            if isinstance(value, (list, tuple)):
-                items = [str(item) for item in value]
-                if any(re.match(r"^\s*\d+[\.\)]\s+", item) for item in items):
-                    return "\n".join(items)
-                return "\n".join(f"{idx + 1}. {item}" for idx, item in enumerate(items))
-            return str(value)
-
+    ) -> Tuple[str, List[str], Optional[str], Optional[str]]:
         steps_text = None
+        steps_source = None
         if test_steps and str(test_steps).strip():
-            steps_text = normalize_steps(test_steps)
+            steps_text = self._normalize_steps_value(test_steps)
+            steps_source = "argument"
         else:
-            try:
-                candidate = BuiltIn().get_variable_value("${TEST_STEPS}")
-            except (RuntimeError, RobotNotRunningError):
-                candidate = None
-            normalized = normalize_steps(candidate)
-            if normalized and normalized.strip():
-                steps_text = normalized
+            steps_text, steps_source = self._resolve_implicit_test_steps()
 
-        objective_text = normalize_text(test_objective)
+        objective_text = self._normalize_text_value(test_objective)
         parsed_source = steps_text if steps_text else objective_text
         steps = self._parse_numbered_steps(parsed_source)
 
         objective = objective_text
         if steps_text and steps_text not in objective_text:
-            objective = f"{objective_text.rstrip()}\n\n{steps_text.strip()}"
+            objective = self._join_non_empty_sections(objective_text, steps_text)
         if steps:
             marker = "USER-DEFINED TEST STEPS (MAIN FLOW, HIGHEST PRIORITY)"
             if marker.lower() not in objective.lower():
                 formatted = "\n".join(f"{idx + 1}. {step}" for idx, step in enumerate(steps))
-                objective = f"{objective.rstrip()}\n\n{marker}:\n{formatted}"
-        return objective, steps, steps_text
+                objective = self._join_non_empty_sections(objective, f"{marker}:\n{formatted}")
+        return objective, steps, steps_text, steps_source
 
     def _log_user_defined_steps(self, steps: List[str]) -> None:
         if not steps:
@@ -1271,9 +1333,15 @@ class AIAgentic:
         """
         self._ensure_orchestrator()
 
-        objective, high_level_steps, _ = self._extract_user_defined_steps(
+        objective, high_level_steps, _, steps_source = self._extract_user_defined_steps(
             test_objective=test_objective,
             test_steps=test_steps,
+        )
+        self._log_implicit_test_steps_source(test_steps, steps_source)
+        self._ensure_objective_or_steps_present(
+            keyword_name="Run Agentic Test",
+            objective=objective,
+            high_level_steps=high_level_steps,
         )
         mode = test_mode or self.test_mode
         iters = int(max_iterations) if max_iterations else self.max_iterations
@@ -1514,9 +1582,15 @@ class AIAgentic:
         """
         self._ensure_orchestrator()
 
-        objective, high_level_steps, _ = self._extract_user_defined_steps(
+        objective, high_level_steps, _, steps_source = self._extract_user_defined_steps(
             test_objective=test_objective,
             test_steps=test_steps,
+        )
+        self._log_implicit_test_steps_source(test_steps, steps_source)
+        self._ensure_objective_or_steps_present(
+            keyword_name="Run Agentic API Test",
+            objective=objective,
+            high_level_steps=high_level_steps,
         )
         iters = int(max_iterations) if max_iterations else self.max_iterations
         explicit_urls = self._extract_explicit_urls(
@@ -1645,9 +1719,15 @@ class AIAgentic:
         """
         self._ensure_orchestrator()
 
-        objective, high_level_steps, _ = self._extract_user_defined_steps(
+        objective, high_level_steps, _, steps_source = self._extract_user_defined_steps(
             test_objective=test_objective,
             test_steps=test_steps,
+        )
+        self._log_implicit_test_steps_source(test_steps, steps_source)
+        self._ensure_objective_or_steps_present(
+            keyword_name="Run Agentic Mobile Test",
+            objective=objective,
+            high_level_steps=high_level_steps,
         )
         iters = int(max_iterations) if max_iterations else self.max_iterations
         explicit_urls = self._extract_explicit_urls(

@@ -58,46 +58,49 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         return (value || '').trim().substring(0, limit);
     }
 
-    function xpathLiteral(value) {
-        if (value.indexOf('"') === -1) {
-            return '"' + value + '"';
+    function cssAttributeSelector(attributeName, value) {
+        if (!value) return null;
+        return 'css=[' + attributeName + '=' + JSON.stringify(String(value)) + ']';
+    }
+
+    function getDomXPath(element) {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
+        const segments = [];
+        let current = element;
+        while (current && current.nodeType === Node.ELEMENT_NODE) {
+            const tag = current.tagName.toLowerCase();
+            if (tag === 'html') {
+                segments.unshift('html[1]');
+                break;
+            }
+            let index = 1;
+            let sibling = current.previousElementSibling;
+            while (sibling) {
+                if (
+                    sibling.tagName &&
+                    sibling.tagName.toLowerCase() === tag
+                ) {
+                    index += 1;
+                }
+                sibling = sibling.previousElementSibling;
+            }
+            segments.unshift(tag + '[' + index + ']');
+            current = current.parentElement;
         }
-        if (value.indexOf("'") === -1) {
-            return "'" + value + "'";
-        }
-        return 'concat("' + value.replace(/"/g, '", \'"\', "') + '")';
+        if (!segments.length) return null;
+        return '//' + segments.join('/');
     }
 
     function getLocator(element) {
         if (!element) return null;
         if (element.id) return 'id=' + element.id;
         const testId = element.getAttribute('data-testid');
-        if (testId) return 'css=[data-testid="' + testId + '"]';
-        if (element.name) return 'name=' + element.name;
+        if (testId) return cssAttributeSelector('data-testid', testId);
+        if (element.name) return cssAttributeSelector('name', element.name);
         const aria = element.getAttribute('aria-label');
-        if (aria) return 'css=[aria-label="' + aria + '"]';
-        const text = safeText(
-            element.innerText || element.textContent || element.value || '',
-            80
-        );
-        if (text) {
-            const tag = element.tagName.toLowerCase();
-            const textExpr = xpathLiteral(text);
-            if (tag === 'button') {
-                return 'xpath=//button[normalize-space()=' + textExpr + ']';
-            }
-            if (tag === 'a') {
-                return 'xpath=//a[normalize-space()=' + textExpr + ']';
-            }
-            const role = element.getAttribute('role');
-            if (role === 'button') {
-                return (
-                    'xpath=//*[@role="button" and normalize-space()=' +
-                    textExpr + ']'
-                );
-            }
-        }
-        return null;
+        if (aria) return cssAttributeSelector('aria-label', aria);
+        const domXPath = getDomXPath(element);
+        return domXPath ? 'xpath=' + domXPath : null;
     }
 
     function isVisible(element) {
@@ -351,10 +354,50 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         });
     });
 
-    return JSON.stringify(snapshot);
+    return snapshot;
     """
-    result = driver.execute_script(js_code)
-    return json.loads(result)
+    try:
+        result = driver.execute_script(js_code)
+        if isinstance(result, dict):
+            return result
+        return json.loads(result)
+    except Exception as exc:
+        logger.warning("Complex page snapshot failed, using fallback snapshot: %s", exc)
+        return _build_fallback_page_snapshot(driver, exc)
+
+
+def _empty_page_snapshot() -> Dict[str, Any]:
+    return {
+        "title": "Untitled",
+        "url": "unknown",
+        "text": "",
+        "interactive_elements": [],
+        "headings": [],
+        "forms": [],
+        "nav_items": [],
+        "main_sections": [],
+        "links": [],
+        "possible_blockers": [],
+        "browser_errors": [],
+    }
+
+
+def _build_fallback_page_snapshot(driver, error: Exception) -> Dict[str, Any]:
+    snapshot = _empty_page_snapshot()
+    snapshot["title"] = getattr(driver, "title", None) or "Untitled"
+    snapshot["url"] = getattr(driver, "current_url", None) or "unknown"
+    snapshot["browser_errors"].append(f"snapshot_fallback: {error}")
+
+    try:
+        text = driver.execute_script(
+            "return document.body ? (document.body.innerText || '').substring(0, 5000) : '';"
+        )
+        if isinstance(text, str):
+            snapshot["text"] = text
+    except Exception as text_error:
+        logger.debug("Fallback page text extraction failed: %s", text_error)
+
+    return snapshot
 
 
 def _get_page_snapshot_data(force_refresh: bool = False) -> Dict[str, Any]:
@@ -555,9 +598,10 @@ def get_form_fields(form_locator: str = "css=form") -> str:
             css = form_locator[4:]
         elif form_locator.startswith("id="):
             css = f"#{form_locator[3:]}"
+        css_literal = json.dumps(css)
 
         js_code = f"""
-        const form = document.querySelector('{css}');
+        const form = document.querySelector({css_literal});
         if (!form) return JSON.stringify([]);
         const fields = [];
         form.querySelectorAll('input, select, textarea, button').forEach(el => {{
