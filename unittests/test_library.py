@@ -3,8 +3,13 @@
 
 """Unit tests for library module."""
 
+import json
 import os
 import shutil
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from AIAgentic.executor import create_session
@@ -33,6 +38,28 @@ def test_agentic_step_fail_raises_assertion():
             assertion_message="Validation failed",
         )
     assert "Validation failed" in str(exc.value)
+
+
+def test_libdoc_docs_render_cleanly(tmp_path):
+    output = tmp_path / "libdoc.json"
+    repo_root = Path(__file__).resolve().parents[1]
+
+    subprocess.run(
+        [sys.executable, "-m", "robot.libdoc", "AIAgentic", str(output)],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    spec = json.loads(output.read_text())
+    init_doc = spec["inits"][0]["doc"]
+    run_test_doc = next(kw["doc"] for kw in spec["keywords"] if kw["name"] == "Run Agentic Test")
+
+    assert "Args:" not in init_doc
+    assert "<li><code>platform</code>" in init_doc
+    assert "<pre>" not in run_test_doc
+    assert "test_objective=${API_OBJECTIVE}" in run_test_doc
 
 
 def test_extract_user_defined_steps_from_list_objective():

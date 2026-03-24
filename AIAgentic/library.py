@@ -105,22 +105,43 @@ class AIAgentic:
     ):
         """Initialize the AIAgentic library.
 
-        Args:
-            platform: AI platform name (OpenAI, Ollama, Gemini, Anthropic, Bedrock, Manual).
-            model: Model ID override. Uses platform default if not specified.
-            api_key: API key override. Resolves from environment if not specified.
-            base_url: Base URL override. Uses platform default if not specified.
-            max_iterations: Maximum agent iterations per test run. Default 50.
-            test_mode: Default testing mode (web, api, mobile). Default web.
-            headless: Run browser in headless mode. Default False.
-            screenshot_on_action: Capture screenshots after actions. Default True.
-            verbose: Enable verbose agent logging. Default False.
-            report_formats: Deprecated (ignored). RF built-in reporting is used.
-            timeout_seconds: Session timeout in seconds. Default 600 (10 min).
-            max_cost_usd: Maximum session cost in USD. None for unlimited.
-            selenium_library: SeleniumLibrary name or alias (for existing sessions).
-            requests_library: RequestsLibrary name or alias (for existing sessions).
-            appium_library: AppiumLibrary name or alias (for existing sessions).
+        The constructor configures the AI platform, default test mode, and
+        aliases to already-loaded Robot Framework libraries that agent tools
+        can reuse.
+
+        Arguments:
+        - ``platform``: AI platform name. Supported values include ``OpenAI``,
+          ``Ollama``, ``Gemini``, ``Anthropic``, ``Bedrock``, and ``Manual``.
+        - ``model``: Optional model ID override. Uses the platform default when
+          not specified.
+        - ``api_key``: Optional API key override. Resolves from environment
+          defaults when not specified.
+        - ``base_url``: Optional base URL override. Uses the platform default
+          when not specified.
+        - ``max_iterations``: Maximum agent iterations per test run. Default
+          is ``50``.
+        - ``test_mode``: Default testing mode. Supported values are ``web``,
+          ``api``, and ``mobile``. Default is ``web``.
+        - ``headless``: Run browser sessions in headless mode. Default is
+          ``False``.
+        - ``screenshot_on_action``: Capture screenshots after actions. Default
+          is ``True``.
+        - ``verbose``: Enable verbose agent logging. Default is ``False``.
+        - ``report_formats``: Deprecated constructor argument kept for
+          backward compatibility.
+        - ``timeout_seconds``: Session timeout in seconds. Default is ``600``.
+        - ``max_cost_usd``: Maximum session cost in USD. ``None`` means no
+          explicit cost cap.
+        - ``selenium_library``: SeleniumLibrary name or alias used to reuse an
+          existing browser session.
+        - ``requests_library``: RequestsLibrary name or alias used for API
+          session discovery.
+        - ``appium_library``: AppiumLibrary name or alias used to reuse an
+          existing mobile session.
+
+        Notes:
+        - ``report_formats`` is ignored. Robot Framework built-in reporting is
+          used instead.
         """
         try:
             self.platform = Platforms[platform]
@@ -1357,8 +1378,12 @@ class AIAgentic:
         | ... | app_context=Web application with active Selenium session |
         | ... | test_mode=web | test_steps=${TEST_STEPS} | max_iterations=30 |
 
+        | ${API_OBJECTIVE}= | Catenate | SEPARATOR=\\n |
+        | ... | 1. Create a user |
+        | ... | 2. Fetch the created user |
+        | ... | 3. Delete the user |
         | ${status}= | Run Agentic Test |
-        | ... | test_objective=1. Create a user\n2. Fetch the created user\n3. Delete the user |
+        | ... | test_objective=${API_OBJECTIVE} |
         | ... | test_mode=api | app_context=User management service |
         """
         self._ensure_orchestrator()
