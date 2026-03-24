@@ -78,6 +78,7 @@ def _collect_blocker_actions(snapshot) -> list[dict]:
                     "score": int(action.get("score", 0)),
                 }
             )
+
     def _priority(item: dict) -> tuple[int, int]:
         if item["category"] == "cookie/consent":
             label = str(item["label"]).lower()
