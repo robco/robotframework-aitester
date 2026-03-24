@@ -19,7 +19,7 @@ Supply a test area, scenario, or high-level test idea for a target application â
 - Instrumented tool bridge records step status, duration, assertion details, and screenshot references, surfacing them in RF logs via the `Agentic Step` keyword.
 - Browser analysis tools share a cached `get_page_snapshot` view and derive interactive elements, page structure, form fields, links, text content, and console errors from that shared page state.
 - Mobile analysis tools now reuse a cached Appium source snapshot across screen-summary and source-inspection calls until the UI changes.
-- Web and mobile executors can add minimal recovery actions when the requested flow is blocked by cookie banners, consent modals, permission dialogs, tutorials, or similar transient UI interruptions.
+- Web and mobile executors can add minimal recovery actions when the requested flow is blocked by cookie banners, consent modals, permission dialogs, tutorials, or similar transient UI interruptions. For web runs, cookie/consent banners are accepted by default unless the user explicitly says otherwise.
 - Utility tools provide assertions, JSON parsing, timing, RF variable access, and optional AIVision screenshot analysis.
 - RF built-in reporting with embedded screenshots, cached screenshot artifacts, and high-level step grouping when user-defined steps are provided.
 
@@ -330,7 +330,8 @@ running multiple overlapping DOM scans on every analysis step.
 - `get_page_snapshot` captures title, URL, text preview, forms, links, headings, interactive elements, and possible blocking overlays in one pass
 - `get_interactive_elements`, `get_page_structure`, `get_page_text_content`, `get_all_links`, and `get_form_fields` reuse that cached snapshot where possible
 - Successful mutating Selenium actions invalidate the cache so later analysis reflects the latest page state
-- `selenium_handle_common_blockers` uses that snapshot to dismiss common blockers such as cookie banners, consent popups, newsletter modals, and tutorial overlays before retrying the intended action
+- `selenium_handle_common_blockers` uses that snapshot to clear common blockers such as cookie banners, consent popups, newsletter modals, and tutorial overlays before retrying the intended action
+- When a cookie or consent banner is detected during a web run, AIAgentic prefers accept/allow actions so the banner disappears unless the user explicitly requested a different choice
 
 ## Mobile State Analysis
 

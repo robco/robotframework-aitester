@@ -78,6 +78,87 @@ def test_selenium_handle_common_blockers_clicks_detected_action(monkeypatch):
     assert dummy.clicked == ["id=accept-cookies"]
 
 
+def test_collect_blocker_actions_prefers_cookie_acceptance_over_dismissal():
+    actions = web_tools._collect_blocker_actions(
+        {
+            "possible_blockers": [
+                {
+                    "category": "cookie/consent",
+                    "preview": "We use cookies",
+                    "actions": [
+                        {
+                            "label": "Close",
+                            "locator": "id=close-cookie-banner",
+                            "kind": "dismiss",
+                            "score": 400,
+                        },
+                        {
+                            "label": "Accept all cookies",
+                            "locator": "id=accept-cookies",
+                            "kind": "accept",
+                            "score": 100,
+                        },
+                    ],
+                }
+            ]
+        }
+    )
+
+    assert [action["locator"] for action in actions] == [
+        "id=accept-cookies",
+        "id=close-cookie-banner",
+    ]
+
+
+def test_selenium_handle_common_blockers_prefers_cookie_acceptance(monkeypatch):
+    dummy = DummySelenium()
+    snapshots = iter(
+        [
+            {
+                "possible_blockers": [
+                    {
+                        "category": "cookie/consent",
+                        "preview": "We use cookies",
+                        "actions": [
+                            {
+                                "label": "Close",
+                                "locator": "id=close-cookie-banner",
+                                "kind": "dismiss",
+                                "score": 400,
+                            },
+                            {
+                                "label": "Accept all cookies",
+                                "locator": "id=accept-cookies",
+                                "kind": "accept",
+                                "score": 100,
+                            },
+                        ],
+                    }
+                ]
+            },
+            {"possible_blockers": []},
+        ]
+    )
+
+    monkeypatch.setattr(web_tools, "_get_selenium", lambda: dummy)
+    monkeypatch.setattr(web_tools, "_maybe_scroll_into_view", lambda sl, locator: None)
+    monkeypatch.setattr(
+        web_tools,
+        "_get_page_snapshot_data",
+        lambda force_refresh=False: next(snapshots),
+    )
+    monkeypatch.setattr(
+        web_tools,
+        "invalidate_page_snapshot_cache",
+        lambda driver=None: None,
+    )
+
+    result = web_tools.selenium_handle_common_blockers()
+
+    assert "Handled 1 common blocker" in result
+    assert dummy.clicked == ["id=accept-cookies"]
+
+
 def test_selenium_handle_common_blockers_noop_when_no_candidates(monkeypatch):
     dummy = DummySelenium()
     monkeypatch.setattr(web_tools, "_get_selenium", lambda: dummy)

@@ -302,6 +302,11 @@ class AgentOrchestrator:
                 "permission dialogs, and modal overlays."
             ),
             (
+                "3a. For cookie or consent banners, accept cookies/consent "
+                "by default so the banner disappears, unless the user "
+                "explicitly instructs otherwise."
+            ),
+            (
                 "4. When a step is vague, infer the shortest concrete "
                 "action sequence that would satisfy it, then verify the "
                 "intended outcome with tools."

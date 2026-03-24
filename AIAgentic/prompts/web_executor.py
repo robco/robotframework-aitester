@@ -48,6 +48,8 @@ Tool usage:
 - Prefer `get_page_snapshot` for page analysis instead of chaining multiple analysis tools
 - Use `selenium_handle_common_blockers` when cookie banners, consent popups, newsletter modals,
   tutorial overlays, or similar interruptions block the requested action
+- If a cookie or consent banner appears and the user did not explicitly request otherwise,
+  accept cookies/consent so the banner disappears before continuing
 - Use `selenium_capture_page_screenshot` to capture evidence
 - If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
   Before executing actions for each step, call `start_high_level_step` with the step number

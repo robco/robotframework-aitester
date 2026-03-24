@@ -151,10 +151,10 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         const labelLower = (label || '').toLowerCase();
         const contextLower = (context || '').toLowerCase();
         if (
-            /accept all|accept cookies|accept|i agree|agree/.test(labelLower) &&
+            /accept all|allow all|accept cookies|allow cookies|accept|allow|i agree|agree/.test(labelLower) &&
             /cookie|consent|privacy|gdpr/.test(contextLower)
         ) {
-            return { kind: 'accept', score: 140 };
+            return { kind: 'accept', score: 150 };
         }
         if (
             /allow|enable|continue/.test(labelLower) &&

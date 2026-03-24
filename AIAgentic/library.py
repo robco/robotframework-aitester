@@ -1316,9 +1316,9 @@ class AIAgentic:
         If numbered steps are supplied either in ``test_steps`` or directly
         inside ``test_objective``, they become the main flow. The agent follows
         them in order, but it may add minimal support actions when needed to
-        preserve the intended flow, such as dismissing a cookie banner, opening
-        a hidden menu, waiting for the page to settle, or clearing a permission
-        prompt.
+        preserve the intended flow, such as accepting a cookie banner so it
+        disappears, opening a hidden menu, waiting for the page to settle, or
+        clearing a permission prompt.
 
         Arguments:
         - ``test_objective``: High-level goal, scenario description, or a text

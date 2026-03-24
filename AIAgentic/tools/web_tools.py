@@ -78,7 +78,16 @@ def _collect_blocker_actions(snapshot) -> list[dict]:
                     "score": int(action.get("score", 0)),
                 }
             )
-    actions.sort(key=lambda item: item["score"], reverse=True)
+    def _priority(item: dict) -> tuple[int, int]:
+        if item["category"] == "cookie/consent":
+            label = str(item["label"]).lower()
+            if item["kind"] in {"accept", "allow"}:
+                return (3, item["score"])
+            if any(token in label for token in ("accept", "agree", "allow")):
+                return (2, item["score"])
+        return (1, item["score"])
+
+    actions.sort(key=_priority, reverse=True)
     return actions
 
 

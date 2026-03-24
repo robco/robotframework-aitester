@@ -38,6 +38,9 @@ If an executor fails, log the error and continue with remaining scenarios.
 Executors may insert minimal recovery or setup actions when they are required
 to preserve the requested flow, such as dismissing cookie banners, accepting
 consent prompts, closing tutorials, or handling permission dialogs.
+If a cookie or consent banner appears and the user did not explicitly request
+otherwise, executors should accept it so the banner disappears before
+continuing.
 Executors must not close or restart an open browser/app session unless the
 user explicitly asks for that action.
 
