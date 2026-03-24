@@ -3,12 +3,9 @@
 
 """Unit tests for executor module."""
 
-import pytest
 import time
 from AIAgentic.executor import (
     TestStep,
-    TestScenario,
-    TestSession,
     SessionStatus,
     StepStatus,
     SafetyGuard,
@@ -61,6 +58,24 @@ class TestTestSession:
         assert session.max_iterations == 30
         assert session.status == SessionStatus.RUNNING
         assert len(session.session_id) == 8
+        assert session.reuse_existing_session is False
+        assert session.start_state_summary is None
+        assert session.scroll_into_view is True
+        assert session.direct_url_navigations_used == 0
+        assert session.allowed_direct_urls == []
+        assert session.allow_browser_termination is False
+
+    def test_create_session_reuse_flags(self):
+        session = create_session(
+            "test",
+            "app",
+            reuse_existing_session=True,
+            start_state_summary="Start State: Active",
+            scroll_into_view=False,
+        )
+        assert session.reuse_existing_session is True
+        assert session.start_state_summary == "Start State: Active"
+        assert session.scroll_into_view is False
 
     def test_session_add_step(self):
         session = create_session("test", "app")
@@ -106,7 +121,7 @@ class TestTestSession:
         assert session.status == SessionStatus.ABORTED
 
     def test_session_to_dict(self):
-        session = create_session("Test login", "Web app", "web", 50)
+        session = create_session("Test login", "Web app", "web", 50, high_level_steps=["Step A"])
         session.add_step(TestStep(1, "click", "Click button", StepStatus.PASSED, 100))
         session.finalize()
         data = session.to_dict()
@@ -114,6 +129,10 @@ class TestTestSession:
         assert data["total_steps"] == 1
         assert data["status"] == "completed"
         assert "steps" in data
+        assert data["high_level_steps"] == ["Step A"]
+        assert data["direct_url_navigations_used"] == 0
+        assert data["allowed_direct_urls"] == []
+        assert data["allow_browser_termination"] is False
 
     def test_record_step_function(self):
         session = create_session("test", "app")
@@ -122,6 +141,16 @@ class TestTestSession:
         )
         assert step.step_number == 1
         assert session.total_steps == 1
+
+    def test_record_step_includes_high_level(self):
+        session = create_session("test", "app", high_level_steps=["First", "Second"])
+        session.current_high_level_step = 2
+        session.current_high_level_step_description = "Second"
+        step = record_step(
+            session, "click", "Click button", StepStatus.PASSED, 10.0
+        )
+        assert step.high_level_step_number == 2
+        assert step.high_level_step_description == "Second"
 
     def test_session_tracks_screenshots(self):
         session = create_session("test", "app")

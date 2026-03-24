@@ -8,9 +8,49 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  changes:
+    name: Detect libdoc changes
+    runs-on: ubuntu-latest
+    outputs:
+      library_changed: ${{ steps.detect.outputs.library_changed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Detect changes in AIAgentic/library.py
+        id: detect
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          else
+            head="${{ github.sha }}"
+            if git rev-parse "${head}^" >/dev/null 2>&1; then
+              base="$(git rev-parse "${head}^")"
+            else
+              base="$(git hash-object -t tree /dev/null)"
+            fi
+          fi
+
+          if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git hash-object -t tree /dev/null)"
+          fi
+
+          if git diff --name-only "$base" "$head" | grep -qx 'AIAgentic/library.py'; then
+            echo "library_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "library_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -68,6 +108,9 @@ jobs:
     needs: [lint, test]
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -78,6 +121,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install build twine
+          pip install -e ".[dev]"
 
       - name: Build package
         run: python -m build
@@ -90,3 +134,46 @@ jobs:
         with:
           name: dist
           path: dist/
+
+  libdoc:
+    name: Generate libdoc
+    runs-on: ubuntu-latest
+    needs: [build, changes]
+    if: needs.changes.outputs.library_changed == 'true'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install libdoc dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Generate Robot Framework libdoc
+        run: |
+          mkdir -p docs
+          python -m robot.libdoc AIAgentic docs/index.html
+
+      - name: Commit updated libdoc
+        if: github.event_name != 'pull_request'
+        run: |
+          if git diff --quiet -- docs/index.html; then
+            echo "docs/index.html is already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html
+          git commit -m "Update generated libdoc [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Verify libdoc in pull requests
+        if: github.event_name == 'pull_request'
+        run: git diff --exit-code -- docs/index.html

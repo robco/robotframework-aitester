@@ -3,7 +3,6 @@
 
 """Unit tests for platforms module."""
 
-import pytest
 from AIAgentic.platforms import Platforms
 
 

@@ -89,6 +89,8 @@ class TestStep:
     screenshot_path: Optional[str] = None
     assertion_message: Optional[str] = None
     error_message: Optional[str] = None
+    high_level_step_number: Optional[int] = None
+    high_level_step_description: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -135,6 +137,21 @@ class TestSession:
         screenshots: Paths to all captured screenshots.
         errors: List of error messages encountered.
         agent_log: Raw agent conversation/action log entries.
+        high_level_steps: User-defined high-level test steps (optional).
+        current_high_level_step: Current high-level step number, if any.
+        current_high_level_step_description: Current high-level step text, if any.
+        reuse_existing_session: Whether to reuse an existing browser/app session.
+        start_state_summary: Start-state summary captured at session start.
+        scroll_into_view: Scroll UI elements into view before interacting.
+        direct_url_navigations_used: Count of direct browser URL navigations used
+            to enter the application.
+        allowed_direct_urls: Concrete URLs explicitly requested by the user.
+        allow_browser_termination: Whether the user explicitly allowed closing,
+            resetting, or restarting the current browser/app session.
+        ui_interactions_total: Count of UI interaction tool calls.
+        ui_state_checks_total: Count of UI state validation tool calls.
+        ui_interactions_by_step: UI interaction counts per high-level step.
+        ui_state_checks_by_step: UI state validation counts per high-level step.
     """
     __test__ = False
     session_id: str
@@ -152,6 +169,19 @@ class TestSession:
     screenshots: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     agent_log: List[Dict[str, Any]] = field(default_factory=list)
+    high_level_steps: List[str] = field(default_factory=list)
+    current_high_level_step: Optional[int] = None
+    current_high_level_step_description: Optional[str] = None
+    reuse_existing_session: bool = False
+    start_state_summary: Optional[str] = None
+    scroll_into_view: bool = True
+    direct_url_navigations_used: int = 0
+    allowed_direct_urls: List[str] = field(default_factory=list)
+    allow_browser_termination: bool = False
+    ui_interactions_total: int = 0
+    ui_state_checks_total: int = 0
+    ui_interactions_by_step: Dict[int, int] = field(default_factory=dict)
+    ui_state_checks_by_step: Dict[int, int] = field(default_factory=dict)
 
     @property
     def duration_seconds(self) -> float:
@@ -229,6 +259,10 @@ class TestSession:
             "cost_usd": round(self.cost_usd, 4),
             "screenshots": self.screenshots,
             "errors": self.errors,
+            "high_level_steps": self.high_level_steps,
+            "direct_url_navigations_used": self.direct_url_navigations_used,
+            "allowed_direct_urls": self.allowed_direct_urls,
+            "allow_browser_termination": self.allow_browser_termination,
             "scenarios": [
                 {
                     "scenario_id": s.scenario_id,
@@ -250,6 +284,8 @@ class TestSession:
                     "screenshot_path": s.screenshot_path,
                     "assertion_message": s.assertion_message,
                     "error_message": s.error_message,
+                    "high_level_step_number": s.high_level_step_number,
+                    "high_level_step_description": s.high_level_step_description,
                 }
                 for s in self.steps
             ],
@@ -412,6 +448,12 @@ def create_session(
     app_context: str,
     test_mode: str = "web",
     max_iterations: int = 50,
+    high_level_steps: Optional[List[str]] = None,
+    reuse_existing_session: bool = False,
+    start_state_summary: Optional[str] = None,
+    scroll_into_view: bool = True,
+    allowed_direct_urls: Optional[List[str]] = None,
+    allow_browser_termination: bool = False,
 ) -> TestSession:
     """Factory function to create a new test session.
 
@@ -437,6 +479,12 @@ def create_session(
         app_context=app_context,
         test_mode=test_mode,
         max_iterations=max_iterations,
+        high_level_steps=high_level_steps or [],
+        reuse_existing_session=reuse_existing_session,
+        start_state_summary=start_state_summary,
+        scroll_into_view=scroll_into_view,
+        allowed_direct_urls=allowed_direct_urls or [],
+        allow_browser_termination=allow_browser_termination,
     )
 
 
@@ -465,6 +513,8 @@ def record_step(
     Returns:
         The recorded TestStep.
     """
+    high_level_number = session.current_high_level_step
+    high_level_description = session.current_high_level_step_description
     step = TestStep(
         step_number=len(session.steps) + 1,
         action=action,
@@ -474,6 +524,8 @@ def record_step(
         screenshot_path=screenshot_path,
         assertion_message=assertion_message,
         error_message=error_message,
+        high_level_step_number=high_level_number,
+        high_level_step_description=high_level_description,
     )
     session.add_step(step)
     return step

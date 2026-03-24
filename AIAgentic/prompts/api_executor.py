@@ -32,6 +32,10 @@ Tool usage:
 - Use `api_get`, `api_post`, `api_put`, `api_patch`, `api_delete` for HTTP requests
 - Use `api_status_should_be` and `api_response_should_contain` to assert responses
 - Use `api_extract_json_field` to extract values from JSON
+- If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
+  Before executing actions for each step, call `start_high_level_step` with the step number
+  and the step text.
+  Treat these steps as the main flow and do not deviate unless a step fails.
 - Step recording is automatic. Do NOT call `record_step` unless explicitly asked.
 
 Always validate responses and provide clear pass/fail assertions.

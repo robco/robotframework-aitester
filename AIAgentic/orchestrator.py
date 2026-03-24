@@ -18,11 +18,12 @@
 Agent orchestrator implementing the Strands SDK supervisor-agent pattern.
 
 A single Supervisor Agent acts as a QA Test Lead, delegating work to
-five specialist agents: Test Planner, Web Executor, API Executor,
-Mobile Executor, and Reporter.
+specialist agents: Test Planner, Web Executor, API Executor, and
+Mobile Executor.
 """
 
 import logging
+import re
 from strands import Agent, tool
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 
@@ -32,7 +33,6 @@ from .prompts import (
     WEB_EXECUTOR_PROMPT,
     API_EXECUTOR_PROMPT,
     MOBILE_EXECUTOR_PROMPT,
-    REPORTER_PROMPT,
 )
 from .tools.web_tools import WEB_TOOLS
 from .tools.api_tools import API_TOOLS
@@ -52,11 +52,13 @@ class AgentOrchestrator:
         ├── Web Executor Agent
         ├── API Executor Agent
         ├── Mobile Executor Agent
-        └── Reporter Agent
 
     Each specialist agent is wrapped as a Strands @tool and provided to
     the supervisor, enabling it to delegate tasks naturally.
     """
+
+    USER_DEFINED_STEPS_MARKER = "USER-DEFINED TEST STEPS (MAIN FLOW, HIGHEST PRIORITY)"
+    NUMBERED_STEP_PATTERN = re.compile(r"^\s*(\d+)[\.\)]\s+(.*\S)\s*$")
 
     def __init__(self, model, available_libraries, verbose=False):
         """Initialize the orchestrator with model and available library config.
@@ -138,19 +140,6 @@ class AgentOrchestrator:
             description="Executes mobile app tests using Appium",
         )
 
-        # ---- Reporter Agent ----
-        self.reporter = Agent(
-            system_prompt=REPORTER_PROMPT,
-            model=self.model,
-            tools=COMMON_TOOLS,
-            conversation_manager=SlidingWindowConversationManager(
-                window_size=15,
-            ),
-            callback_handler=self._create_callback_handler("Reporter"),
-            name="Reporter",
-            description="Generates comprehensive test reports from execution results",
-        )
-
         # ---- Create supervisor tools (wrapping specialist agents) ----
 
         # Capture references for closures
@@ -158,7 +147,6 @@ class AgentOrchestrator:
         web_executor = self.web_executor
         api_executor = self.api_executor
         mobile_executor = self.mobile_executor
-        reporter = self.reporter
 
         @tool
         def plan_tests(objective: str) -> str:
@@ -229,25 +217,8 @@ class AgentOrchestrator:
             result = mobile_executor(plan)
             return str(result)
 
-        @tool
-        def generate_report(execution_results: str) -> str:
-            """Delegates report generation to the Reporter agent.
-
-            Use this tool after test execution to generate a comprehensive
-            test report with findings, evidence references, and recommendations.
-
-            Args:
-                execution_results: All execution results to analyze and report on.
-
-            Returns:
-                Structured test report.
-            """
-            logger.info("Supervisor → Reporter")
-            result = reporter(execution_results)
-            return str(result)
-
         # ---- Supervisor Agent ----
-        supervisor_tools = [plan_tests, generate_report]
+        supervisor_tools = [plan_tests]
 
         # Add executor tools based on available libraries
         if "SeleniumLibrary" in self.available_libraries:
@@ -269,19 +240,218 @@ class AgentOrchestrator:
             description="Senior QA Test Lead coordinating specialist agents",
         )
 
-    def run(self, objective, app_context, max_iterations=50, test_mode="web"):
-        """Execute an agentic test session.
+    @staticmethod
+    def _has_user_defined_steps(objective, high_level_steps=None) -> bool:
+        if high_level_steps:
+            return True
+        return bool(AgentOrchestrator._extract_numbered_steps(objective))
 
-        Args:
-            objective: The test objective from the user.
-            app_context: Application context description.
-            max_iterations: Maximum agent iterations.
-            test_mode: Testing mode (web, api, mobile).
+    @staticmethod
+    def _extract_numbered_steps(objective) -> list[str]:
+        steps = []
+        for line in str(objective or "").splitlines():
+            match = AgentOrchestrator.NUMBERED_STEP_PATTERN.match(line)
+            if match:
+                steps.append(match.group(2).strip())
+        return steps
 
-        Returns:
-            The final report/result as a string.
-        """
-        # Build the prompt for the supervisor
+    @staticmethod
+    def _resolve_high_level_steps(objective, high_level_steps=None) -> list[str]:
+        if high_level_steps:
+            return [str(step).strip() for step in high_level_steps if str(step).strip()]
+        return AgentOrchestrator._extract_numbered_steps(objective)
+
+    def _get_executor(self, test_mode: str):
+        mode = str(test_mode or "").strip().lower()
+        if mode == "web":
+            return self.web_executor
+        if mode == "api":
+            return self.api_executor
+        if mode == "mobile":
+            return self.mobile_executor
+        return None
+
+    @staticmethod
+    def _format_high_level_steps(high_level_steps) -> str:
+        if not high_level_steps:
+            return ""
+        return "\n".join(
+            f"{index}. {step}"
+            for index, step in enumerate(high_level_steps, start=1)
+        )
+
+    @staticmethod
+    def _build_adaptive_execution_rules(test_mode: str) -> list[str]:
+        mode = str(test_mode or "").strip().lower()
+        rules = [
+            "Adaptive Execution Rules:",
+            (
+                "1. Treat user-provided steps as ordered intent checkpoints, "
+                "not a pixel-perfect script."
+            ),
+            (
+                "2. You may add the smallest necessary support actions to "
+                "complete the intended flow: open menus, switch tabs, "
+                "scroll, wait, refresh state, or retry once after "
+                "clearing a blocker."
+            ),
+            (
+                "3. If a transient blocker appears, handle it first and "
+                "then continue the requested flow. Common blockers include "
+                "cookie banners, consent popups, tutorials, update prompts, "
+                "permission dialogs, and modal overlays."
+            ),
+            (
+                "3a. For cookie or consent banners, accept cookies/consent "
+                "by default so the banner disappears, unless the user "
+                "explicitly instructs otherwise."
+            ),
+            (
+                "4. When a step is vague, infer the shortest concrete "
+                "action sequence that would satisfy it, then verify the "
+                "intended outcome with tools."
+            ),
+            (
+                "5. Do not reorder the main business flow, invent a "
+                "different user journey, or take destructive side paths "
+                "unless the requested path is impossible."
+            ),
+        ]
+        if mode == "web":
+            rules.append(
+                "6. When the page state is unclear, inspect it with "
+                "`get_page_snapshot`. If a banner or modal blocks "
+                "interaction, use `selenium_handle_common_blockers` before "
+                "retrying the target action."
+            )
+            rules.append(
+                "7. Simulate a normal user. Use direct URL navigation only "
+                "for the initial application entry when needed. After that, "
+                "reach pages by clicking visible links, buttons, menus, tabs, "
+                "breadcrumbs, and other UI controls instead of jumping to URLs, "
+                "unless the user explicitly instructs a concrete URL to open."
+            )
+            rules.append(
+                "8. Preserve any open browser session. Do not close or restart "
+                "the browser as a recovery step unless the user explicitly "
+                "requested that action."
+            )
+        elif mode == "mobile":
+            rules.append(
+                "6. When the current screen is unclear, inspect it with "
+                "`appium_get_view_snapshot` first and fall back to "
+                "`appium_get_source` only when more detail is needed. If the "
+                "app is blocked by a permission, tutorial, or update "
+                "dialog, use `appium_handle_common_interruptions` before "
+                "retrying the target action."
+            )
+            rules.append(
+                "7. Simulate a normal user on the current device. Continue "
+                "from the current screen and navigate with visible taps, "
+                "swipes, scrolls, tabs, and menus instead of resetting or "
+                "relaunching the app to skip ahead."
+            )
+            rules.append(
+                "8. Preserve any open mobile session. Do not close, reset, "
+                "or relaunch the application as a recovery step unless the "
+                "user explicitly requested that action."
+            )
+        return rules
+
+    def _build_planner_prompt(
+        self,
+        objective: str,
+        app_context: str,
+        test_mode: str,
+        max_iterations: int,
+    ) -> str:
+        return f"""
+Test Objective: {objective}
+
+Application Context: {app_context}
+
+Test Mode: {test_mode}
+Max Iterations: {max_iterations}
+
+Return only the structured JSON plan requested by your system prompt.
+"""
+
+    def _build_executor_prompt(
+        self,
+        objective: str,
+        app_context: str,
+        test_mode: str,
+        max_iterations: int,
+        plan: str = "",
+        high_level_steps=None,
+        exploratory: bool = False,
+        focus_areas: str = "",
+    ) -> str:
+        resolved_steps = self._resolve_high_level_steps(objective, high_level_steps)
+        formatted_steps = self._format_high_level_steps(resolved_steps)
+        adaptive_rules = self._build_adaptive_execution_rules(test_mode)
+        instructions = [
+            f"Test Objective: {objective}",
+            "",
+            f"Application Context: {app_context}",
+            "",
+            f"Test Mode: {test_mode}",
+            f"Max Iterations: {max_iterations}",
+        ]
+
+        if exploratory:
+            instructions.extend(
+                [
+                    "",
+                    f"Focus Areas: {focus_areas or 'general exploration'}",
+                    "",
+                    "Instructions:",
+                    "1. Explore the application directly without a planner or supervisor handoff.",
+                    "2. Focus on the listed areas, exercise main flows, and verify outcomes with tools.",
+                    *adaptive_rules,
+                    "3. Return a brief completion status (1-2 sentences).",
+                ]
+            )
+            return "\n".join(instructions)
+
+        if formatted_steps:
+            instructions.extend(
+                [
+                    "",
+                    "User-defined Main Flow:",
+                    formatted_steps,
+                    "",
+                    "Instructions:",
+                    "1. Execute the numbered steps in order without requesting a separate plan.",
+                    "2. Treat the numbered steps as the primary flow and keep their business intent intact.",
+                    *adaptive_rules,
+                    "3. Return a brief completion status (1-2 sentences).",
+                ]
+            )
+            return "\n".join(instructions)
+
+        instructions.extend(
+            [
+                "",
+                "Execution Plan:",
+                plan,
+                "",
+                "Instructions:",
+                "1. Execute this plan directly in priority order.",
+                "2. Use the available tools to complete and verify each scenario.",
+                *adaptive_rules,
+                "3. Return a brief completion status (1-2 sentences).",
+            ]
+        )
+        return "\n".join(instructions)
+
+    def _run_via_supervisor(
+        self,
+        objective,
+        app_context,
+        max_iterations=50,
+        test_mode="web",
+    ):
         available = ", ".join(self.available_libraries.keys())
 
         prompt = f"""
@@ -296,18 +466,99 @@ Max Iterations: {max_iterations}
 Instructions:
 1. Start by delegating test planning to the Test Planner.
 2. Execute the plan using the appropriate executor ({test_mode} mode).
-3. After execution, delegate to the Reporter for a final report.
-4. Return the final report.
+   Execute scenarios in priority order and treat any user-defined steps as the main flow.
+   Executors may add minimal recovery actions to dismiss transient blockers
+   or clarify vague steps, but must preserve the requested flow and intent.
+3. Return a brief completion status (1-2 sentences). Do NOT generate a standalone report.
+   The official report is provided by Robot Framework's built-in log/report.
 """
         logger.info(
-            "Starting agentic test: mode=%s, max_iter=%d",
+            "Starting agentic test via supervisor: mode=%s, max_iter=%d",
             test_mode,
             max_iterations,
         )
         result = self.supervisor(prompt)
         return str(result)
 
-    def run_exploration(self, app_context, focus_areas=None, max_iterations=100):
+    def _run_direct(
+        self,
+        objective,
+        app_context,
+        max_iterations=50,
+        test_mode="web",
+        high_level_steps=None,
+        exploratory: bool = False,
+        focus_areas: str = "",
+    ):
+        executor = self._get_executor(test_mode)
+        resolved_steps = self._resolve_high_level_steps(objective, high_level_steps)
+        if executor is None:
+            return self._run_via_supervisor(
+                objective=objective,
+                app_context=app_context,
+                max_iterations=max_iterations,
+                test_mode=test_mode,
+            )
+
+        plan = ""
+        if not exploratory and not self._has_user_defined_steps(objective, resolved_steps):
+            planner_prompt = self._build_planner_prompt(
+                objective=objective,
+                app_context=app_context,
+                test_mode=test_mode,
+                max_iterations=max_iterations,
+            )
+            logger.info("Direct execution → Planner: %s", objective[:100])
+            plan = str(self.planner(planner_prompt))
+
+        executor_prompt = self._build_executor_prompt(
+            objective=objective,
+            app_context=app_context,
+            test_mode=test_mode,
+            max_iterations=max_iterations,
+            plan=plan,
+            high_level_steps=resolved_steps,
+            exploratory=exploratory,
+            focus_areas=focus_areas,
+        )
+        logger.info("Direct execution → %s executor", test_mode)
+        result = executor(executor_prompt)
+        return str(result)
+
+    def run(
+        self,
+        objective,
+        app_context,
+        max_iterations=50,
+        test_mode="web",
+        high_level_steps=None,
+    ):
+        """Execute an agentic test session.
+
+        Args:
+            objective: The test objective from the user.
+            app_context: Application context description.
+            max_iterations: Maximum agent iterations.
+            test_mode: Testing mode (web, api, mobile).
+
+        Returns:
+            The final report/result as a string.
+        """
+        return self._run_direct(
+            objective=objective,
+            app_context=app_context,
+            max_iterations=max_iterations,
+            test_mode=test_mode,
+            high_level_steps=high_level_steps,
+        )
+
+    def run_exploration(
+        self,
+        app_context,
+        focus_areas=None,
+        max_iterations=100,
+        test_mode="web",
+    ):
         """Execute an exploratory agentic test session.
 
         Args:
@@ -318,31 +569,16 @@ Instructions:
         Returns:
             The exploration report as a string.
         """
-        available = ", ".join(self.available_libraries.keys())
         focus = focus_areas or "general exploration"
-
-        prompt = f"""
-Test Objective: EXPLORATORY TESTING
-
-Application Context: {app_context}
-
-Focus Areas: {focus}
-Available Libraries: {available}
-Max Iterations: {max_iterations}
-
-Instructions:
-1. Plan an exploratory test approach covering the focus areas.
-2. Systematically explore the application:
-   - Navigate through main flows
-   - Try unexpected inputs and actions
-   - Test error handling and edge cases
-   - Look for UI/UX issues
-3. Document all findings with evidence.
-4. Generate a comprehensive exploration report.
-"""
-        logger.info("Starting exploratory test: focus=%s", focus)
-        result = self.supervisor(prompt)
-        return str(result)
+        logger.info("Starting exploratory test: mode=%s, focus=%s", test_mode, focus)
+        return self._run_direct(
+            objective="EXPLORATORY TESTING",
+            app_context=app_context,
+            max_iterations=max_iterations,
+            test_mode=test_mode,
+            exploratory=True,
+            focus_areas=focus,
+        )
 
     def _create_callback_handler(self, agent_name):
         """Create a callback handler for an agent.

@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import time
+import shutil
 from typing import Any, Iterable, Optional
 from strands import tool
 from strands.tools.decorator import DecoratedFunctionTool
@@ -23,6 +24,187 @@ from robot.api import logger as rf_logger
 from ..executor import StepStatus, record_step as record_step_impl, get_active_session
 
 logger = logging.getLogger(__name__)
+_SCREENSHOT_OUTPUT_CACHE = {}
+
+WEB_UI_INTERACTION_ACTIONS = {
+    "selenium_open_browser",
+    "selenium_go_to",
+    "selenium_go_back",
+    "selenium_reload_page",
+    "selenium_click_element",
+    "selenium_click_button",
+    "selenium_click_link",
+    "selenium_input_text",
+    "selenium_input_password",
+    "selenium_clear_element_text",
+    "selenium_select_from_list_by_label",
+    "selenium_select_from_list_by_value",
+    "selenium_select_checkbox",
+    "selenium_unselect_checkbox",
+    "selenium_mouse_over",
+    "selenium_press_keys",
+    "selenium_scroll_element_into_view",
+    "selenium_handle_common_blockers",
+    "selenium_switch_window",
+    "selenium_select_frame",
+    "selenium_unselect_frame",
+}
+
+WEB_UI_STATE_ACTIONS = {
+    "selenium_get_text",
+    "selenium_get_element_attribute",
+    "selenium_get_value",
+    "selenium_element_should_be_visible",
+    "selenium_element_should_not_be_visible",
+    "selenium_element_should_contain",
+    "selenium_element_text_should_be",
+    "selenium_page_should_contain",
+    "selenium_page_should_not_contain",
+    "selenium_title_should_be",
+    "selenium_get_location",
+    "selenium_location_should_be",
+    "selenium_location_should_contain",
+    "selenium_wait_until_element_is_visible",
+    "selenium_wait_until_element_is_enabled",
+    "selenium_wait_until_page_contains",
+    "selenium_wait_until_page_contains_element",
+    "selenium_capture_page_screenshot",
+    "selenium_execute_javascript",
+    "get_page_snapshot",
+    "get_page_structure",
+    "get_interactive_elements",
+    "get_page_text_content",
+    "get_all_links",
+    "get_form_fields",
+    "check_page_errors",
+}
+
+MOBILE_UI_INTERACTION_ACTIONS = {
+    "appium_open_application",
+    "appium_close_application",
+    "appium_close_all_applications",
+    "appium_click_element",
+    "appium_input_text",
+    "appium_clear_text",
+    "appium_long_press",
+    "appium_swipe",
+    "appium_scroll_down",
+    "appium_scroll_up",
+    "appium_background_app",
+    "appium_reset_application",
+    "appium_handle_common_interruptions",
+}
+
+MOBILE_UI_STATE_ACTIONS = {
+    "appium_get_text",
+    "appium_get_element_attribute",
+    "appium_element_should_be_visible",
+    "appium_element_should_not_be_visible",
+    "appium_element_should_contain_text",
+    "appium_page_should_contain_text",
+    "appium_page_should_not_contain_text",
+    "appium_wait_until_element_is_visible",
+    "appium_wait_until_page_contains",
+    "appium_capture_page_screenshot",
+    "appium_get_view_snapshot",
+    "appium_get_source",
+}
+
+WEB_UI_MUTATION_ACTIONS = {
+    "selenium_open_browser",
+    "selenium_close_browser",
+    "selenium_close_all_browsers",
+    "selenium_go_to",
+    "selenium_go_back",
+    "selenium_reload_page",
+    "selenium_click_element",
+    "selenium_click_button",
+    "selenium_click_link",
+    "selenium_input_text",
+    "selenium_input_password",
+    "selenium_clear_element_text",
+    "selenium_select_from_list_by_label",
+    "selenium_select_from_list_by_value",
+    "selenium_select_checkbox",
+    "selenium_unselect_checkbox",
+    "selenium_mouse_over",
+    "selenium_press_keys",
+    "selenium_scroll_element_into_view",
+    "selenium_handle_common_blockers",
+    "selenium_wait_until_element_is_visible",
+    "selenium_wait_until_element_is_enabled",
+    "selenium_wait_until_page_contains",
+    "selenium_wait_until_page_contains_element",
+    "selenium_execute_javascript",
+    "selenium_switch_window",
+    "selenium_select_frame",
+    "selenium_unselect_frame",
+}
+
+MOBILE_UI_MUTATION_ACTIONS = {
+    "appium_open_application",
+    "appium_close_application",
+    "appium_close_all_applications",
+    "appium_click_element",
+    "appium_input_text",
+    "appium_clear_text",
+    "appium_long_press",
+    "appium_swipe",
+    "appium_scroll_down",
+    "appium_scroll_up",
+    "appium_background_app",
+    "appium_reset_application",
+    "appium_handle_common_interruptions",
+}
+
+
+def _track_ui_action(session, action_name: str, status: StepStatus) -> None:
+    if not session or status is not StepStatus.PASSED:
+        return
+    if session.test_mode == "web":
+        interaction_set = WEB_UI_INTERACTION_ACTIONS
+        state_set = WEB_UI_STATE_ACTIONS
+    elif session.test_mode == "mobile":
+        interaction_set = MOBILE_UI_INTERACTION_ACTIONS
+        state_set = MOBILE_UI_STATE_ACTIONS
+    else:
+        return
+
+    step_number = session.current_high_level_step
+    if action_name in interaction_set:
+        session.ui_interactions_total += 1
+        if step_number:
+            session.ui_interactions_by_step[step_number] = (
+                session.ui_interactions_by_step.get(step_number, 0) + 1
+            )
+    if action_name in state_set:
+        session.ui_state_checks_total += 1
+        if step_number:
+            session.ui_state_checks_by_step[step_number] = (
+                session.ui_state_checks_by_step.get(step_number, 0) + 1
+            )
+
+
+def _invalidate_browser_snapshot_cache(action_name: str, status: StepStatus) -> None:
+    if status is not StepStatus.PASSED or action_name not in WEB_UI_MUTATION_ACTIONS:
+        return
+    try:
+        from .browser_analysis_tools import invalidate_page_snapshot_cache
+
+        invalidate_page_snapshot_cache()
+    except Exception as exc:
+        logger.debug("Unable to invalidate browser analysis cache: %s", exc)
+
+
+def _invalidate_mobile_snapshot_cache(action_name: str, status: StepStatus) -> None:
+    if status is not StepStatus.PASSED or action_name not in MOBILE_UI_MUTATION_ACTIONS:
+        return
+    try:
+        from .mobile_tools import invalidate_mobile_snapshot_cache
+
+        invalidate_mobile_snapshot_cache()
+    except Exception as exc:
+        logger.debug("Unable to invalidate mobile analysis cache: %s", exc)
 
 
 def _get_rf_output_dir():
@@ -204,10 +386,20 @@ def _log_agentic_step_to_rf(
     screenshot_path: str = None,
     assertion_message: str = None,
     error_message: str = None,
+    high_level_step_number: Optional[int] = None,
+    high_level_step_description: str = None,
 ) -> None:
     """Emit an agentic step as a Robot Framework keyword entry."""
     try:
         bi = BuiltIn()
+        normalized_screenshot_path = screenshot_path or ""
+        if normalized_screenshot_path:
+            try:
+                copied_target = _ensure_screenshot_in_output_dir(normalized_screenshot_path)
+                if copied_target:
+                    normalized_screenshot_path = copied_target
+            except Exception as exc:
+                logger.debug("Unable to normalize screenshot path before RF logging: %s", exc)
         args = [
             action,
             description,
@@ -215,8 +407,15 @@ def _log_agentic_step_to_rf(
             f"{duration_ms:.0f}",
             assertion_message or "",
             error_message or "",
-            screenshot_path or "",
+            normalized_screenshot_path,
         ]
+        if high_level_step_number is not None or high_level_step_description:
+            args.extend(
+                [
+                    str(high_level_step_number or ""),
+                    high_level_step_description or "",
+                ]
+            )
         if status in (StepStatus.FAILED, StepStatus.ERROR):
             bi.run_keyword_and_ignore_error("Agentic Step", *args)
         else:
@@ -228,6 +427,101 @@ def _log_agentic_step_to_rf(
         )
     except Exception as exc:
         logger.debug("Unable to log agentic step to RF: %s", exc)
+
+
+def _log_high_level_step_to_rf(step_number: int, step_description: str) -> None:
+    """Emit a high-level step marker into the RF log."""
+    try:
+        bi = BuiltIn()
+        bi.run_keyword("Agentic High Level Step", str(step_number), step_description or "")
+    except RobotNotRunningError:
+        rf_logger.info(f"[HIGH LEVEL STEP] {step_number}. {step_description}")
+    except Exception as exc:
+        logger.debug("Unable to log high-level step to RF: %s", exc)
+
+
+def _resolve_high_level_step_description(
+    session, step_number: int, step_description: str
+) -> str:
+    if session and session.high_level_steps:
+        if 1 <= step_number <= len(session.high_level_steps):
+            return session.high_level_steps[step_number - 1]
+    return step_description or ""
+
+
+def _ensure_screenshot_in_output_dir(screenshot_path: Optional[str]) -> Optional[str]:
+    if not screenshot_path:
+        return None
+    filename = os.path.basename(screenshot_path)
+    normalized_source = os.path.abspath(
+        os.path.expanduser(os.path.expandvars(str(screenshot_path)))
+    )
+    try:
+        output_dir = BuiltIn().get_variable_value("${OUTPUT_DIR}")
+    except RobotNotRunningError:
+        output_dir = os.getcwd()
+    if not output_dir:
+        output_dir = os.getcwd()
+    target = os.path.join(output_dir, filename)
+    if os.path.abspath(normalized_source) == os.path.abspath(target):
+        return target
+    try:
+        source_stat = os.stat(normalized_source)
+    except OSError:
+        source_stat = None
+    cache_key = None
+    if source_stat is not None:
+        cache_key = (
+            os.path.realpath(normalized_source),
+            os.path.realpath(target),
+            int(source_stat.st_mtime_ns),
+            int(source_stat.st_size),
+        )
+        cached_target = _SCREENSHOT_OUTPUT_CACHE.get(cache_key)
+        if cached_target and os.path.exists(cached_target):
+            return cached_target
+    try:
+        if os.path.exists(normalized_source):
+            should_copy = True
+            if os.path.exists(target) and source_stat is not None:
+                target_stat = os.stat(target)
+                should_copy = (
+                    int(target_stat.st_mtime_ns) < int(source_stat.st_mtime_ns)
+                    or int(target_stat.st_size) != int(source_stat.st_size)
+                )
+            if should_copy:
+                shutil.copy2(normalized_source, target)
+            if cache_key is not None:
+                _SCREENSHOT_OUTPUT_CACHE[cache_key] = target
+    except Exception as exc:
+        logger.debug("Unable to copy screenshot to output dir: %s", exc)
+    return target
+
+
+def _normalize_screenshot_filename(filename: Optional[str]) -> Optional[str]:
+    if not filename:
+        return filename
+    base, ext = os.path.splitext(filename)
+    if not ext:
+        return f"{filename}.png"
+    if ext.lower() != ".png":
+        return f"{base}.png"
+    return filename
+
+
+def _set_high_level_step(
+    session, step_number: int, step_description: str, source: str = "tool"
+) -> bool:
+    if session:
+        if (
+            session.current_high_level_step == step_number
+            and session.current_high_level_step_description == step_description
+        ):
+            return False
+        session.current_high_level_step = step_number
+        session.current_high_level_step_description = step_description
+    _log_high_level_step_to_rf(step_number, step_description)
+    return True
 
 
 def _is_sensitive_key(name: str) -> bool:
@@ -327,6 +621,14 @@ def _record_tool_step(
     error_message: str = None,
 ) -> None:
     session = get_active_session()
+    normalized_screenshot = _ensure_screenshot_in_output_dir(screenshot_path)
+    if session and session.high_level_steps and session.current_high_level_step is None:
+        _set_high_level_step(
+            session=session,
+            step_number=1,
+            step_description=session.high_level_steps[0],
+            source="auto",
+        )
     if session:
         record_step_impl(
             session=session,
@@ -334,18 +636,23 @@ def _record_tool_step(
             description=description,
             status=status,
             duration_ms=duration_ms,
-            screenshot_path=screenshot_path,
+            screenshot_path=normalized_screenshot,
             assertion_message=assertion_message,
             error_message=error_message,
         )
+        _track_ui_action(session, action, status)
+    _invalidate_browser_snapshot_cache(action, status)
+    _invalidate_mobile_snapshot_cache(action, status)
     _log_agentic_step_to_rf(
         action=action,
         description=description,
         status=status,
         duration_ms=duration_ms,
-        screenshot_path=screenshot_path,
+        screenshot_path=normalized_screenshot,
         assertion_message=assertion_message,
         error_message=error_message,
+        high_level_step_number=session.current_high_level_step if session else None,
+        high_level_step_description=session.current_high_level_step_description if session else None,
     )
 
 
@@ -434,6 +741,14 @@ def record_step(
     step_status = _normalize_step_status(status)
     duration = _coerce_float(duration_ms)
     session = get_active_session()
+    normalized_screenshot = _ensure_screenshot_in_output_dir(screenshot_path)
+    if session and session.high_level_steps and session.current_high_level_step is None:
+        _set_high_level_step(
+            session=session,
+            step_number=1,
+            step_description=session.high_level_steps[0],
+            source="auto",
+        )
     if session:
         record_step_impl(
             session=session,
@@ -441,7 +756,7 @@ def record_step(
             description=description,
             status=step_status,
             duration_ms=duration,
-            screenshot_path=screenshot_path,
+            screenshot_path=normalized_screenshot,
             assertion_message=assertion_message,
             error_message=error_message,
         )
@@ -450,11 +765,47 @@ def record_step(
         description=description,
         status=step_status,
         duration_ms=duration,
-        screenshot_path=screenshot_path,
+        screenshot_path=normalized_screenshot,
         assertion_message=assertion_message,
         error_message=error_message,
+        high_level_step_number=session.current_high_level_step if session else None,
+        high_level_step_description=session.current_high_level_step_description if session else None,
     )
     return f"Recorded step: {action} - {description} ({step_status.value})"
+
+
+@tool
+def start_high_level_step(step_number: str, step_description: str = "") -> str:
+    """Starts a user-defined high-level test step for reporting.
+
+    Args:
+        step_number: 1-based high-level step index.
+        step_description: Optional step text. If a session-defined list exists,
+            the stored step text overrides this value.
+
+    Returns:
+        Confirmation message.
+    """
+    try:
+        number = int(step_number)
+    except (TypeError, ValueError):
+        return f"ERROR: step_number must be an integer, got '{step_number}'"
+
+    session = get_active_session()
+    description = _resolve_high_level_step_description(
+        session=session,
+        step_number=number,
+        step_description=step_description,
+    )
+    changed = _set_high_level_step(
+        session=session,
+        step_number=number,
+        step_description=description,
+        source="tool",
+    )
+    if not changed:
+        return f"High-level step {number} already active"
+    return f"High-level step {number}: {description}"
 
 # ---------------------------------------------------------------------------
 # Timing
@@ -574,6 +925,7 @@ COMMON_TOOLS = [
     log_message,
     log_step_result,
     record_step,
+    start_high_level_step,
     sleep_seconds,
     parse_json,
     get_current_timestamp,

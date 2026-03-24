@@ -11,7 +11,7 @@ via robotframework-requests (RequestsLibrary).
 import json
 import logging
 from strands import tool
-from robot.libraries.BuiltIn import BuiltIn
+from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
 from .common_tools import instrument_tool_list
 
@@ -20,7 +20,22 @@ logger = logging.getLogger(__name__)
 
 def _get_requests():
     """Get the RequestsLibrary instance from Robot Framework."""
-    return BuiltIn().get_library_instance("RequestsLibrary")
+    bi = BuiltIn()
+    lib_name = "RequestsLibrary"
+    try:
+        override = bi.get_variable_value("${AIAGENTIC_REQUESTS_LIBRARY}")
+        if override:
+            lib_name = override
+    except RobotNotRunningError:
+        pass
+    try:
+        return bi.get_library_instance(lib_name)
+    except Exception as exc:
+        raise RuntimeError(
+            f"RequestsLibrary instance '{lib_name}' not found. "
+            "Ensure RequestsLibrary is imported or set requests_library "
+            "when importing AIAgentic."
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
