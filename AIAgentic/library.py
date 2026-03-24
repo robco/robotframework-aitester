@@ -860,12 +860,17 @@ class AIAgentic:
         return found
 
     @staticmethod
-    def _allows_explicit_browser_termination(*values: Any) -> bool:
+    def _allows_explicit_session_termination(*values: Any) -> bool:
         positive_patterns = (
             re.compile(r"\b(?:close|quit|exit)\s+(?:all\s+)?browsers?\b"),
             re.compile(r"\b(?:restart|reopen|relaunch)\s+(?:the\s+)?browser\b"),
             re.compile(r"\breset\s+(?:the\s+)?browser\s+session\b"),
             re.compile(r"\b(?:open|start|launch)\s+(?:a\s+)?new\s+browser(?:\s+session)?\b"),
+            re.compile(r"\b(?:close|quit|exit)\s+(?:the\s+)?(?:app|application)\b"),
+            re.compile(r"\b(?:close|quit|exit)\s+all\s+applications\b"),
+            re.compile(r"\b(?:restart|reopen|relaunch)\s+(?:the\s+)?(?:app|application)\b"),
+            re.compile(r"\breset\s+(?:the\s+)?(?:app|application)(?:\s+state)?\b"),
+            re.compile(r"\b(?:open|start|launch)\s+(?:a\s+)?new\s+(?:app|application)(?:\s+session)?\b"),
         )
         negation_pattern = re.compile(r"\b(?:do\s+not|don't|dont|never|avoid|without)\b")
 
@@ -884,6 +889,11 @@ class AIAgentic:
                         continue
                     return True
         return False
+
+    @staticmethod
+    def _allows_explicit_browser_termination(*values: Any) -> bool:
+        """Backward-compatible alias for explicit UI session termination checks."""
+        return AIAgentic._allows_explicit_session_termination(*values)
 
     def _start_session(
         self,
@@ -1272,7 +1282,7 @@ class AIAgentic:
             test_steps,
             app_context,
         )
-        allow_browser_termination = self._allows_explicit_browser_termination(
+        allow_browser_termination = self._allows_explicit_session_termination(
             test_objective,
             test_steps,
             app_context,
@@ -1388,7 +1398,7 @@ class AIAgentic:
 
         iters = int(max_iterations) if max_iterations else self.max_iterations
         explicit_urls = self._extract_explicit_urls(app_context, focus_areas)
-        allow_browser_termination = self._allows_explicit_browser_termination(
+        allow_browser_termination = self._allows_explicit_session_termination(
             app_context,
             focus_areas,
         )
@@ -1515,7 +1525,7 @@ class AIAgentic:
             base_url,
             api_spec_url,
         )
-        allow_browser_termination = self._allows_explicit_browser_termination(
+        allow_browser_termination = self._allows_explicit_session_termination(
             test_objective,
             test_steps,
             base_url,
@@ -1645,7 +1655,7 @@ class AIAgentic:
             test_steps,
             app_context,
         )
-        allow_browser_termination = self._allows_explicit_browser_termination(
+        allow_browser_termination = self._allows_explicit_session_termination(
             test_objective,
             test_steps,
             app_context,

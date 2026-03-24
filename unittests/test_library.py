@@ -125,6 +125,16 @@ def test_allows_explicit_browser_termination_respects_negation():
     assert allowed is False
 
 
+def test_allows_explicit_session_termination_for_app_restart_request():
+    agentic = AIAgentic()
+
+    allowed = agentic._allows_explicit_session_termination(
+        "Reset the app and relaunch it before retrying onboarding."
+    )
+
+    assert allowed is True
+
+
 def test_prepare_screenshot_artifact_reuses_cached_copy(tmp_path, monkeypatch):
     agentic = AIAgentic()
     source_dir = tmp_path / "source"

@@ -81,13 +81,17 @@ WEB_UI_STATE_ACTIONS = {
 
 MOBILE_UI_INTERACTION_ACTIONS = {
     "appium_open_application",
+    "appium_close_application",
+    "appium_close_all_applications",
     "appium_click_element",
     "appium_input_text",
     "appium_clear_text",
     "appium_long_press",
+    "appium_swipe",
     "appium_scroll_down",
     "appium_scroll_up",
     "appium_background_app",
+    "appium_reset_application",
     "appium_handle_common_interruptions",
 }
 
@@ -97,8 +101,13 @@ MOBILE_UI_STATE_ACTIONS = {
     "appium_element_should_be_visible",
     "appium_element_should_not_be_visible",
     "appium_element_should_contain_text",
+    "appium_page_should_contain_text",
+    "appium_page_should_not_contain_text",
     "appium_wait_until_element_is_visible",
+    "appium_wait_until_page_contains",
+    "appium_capture_page_screenshot",
     "appium_get_view_snapshot",
+    "appium_get_source",
 }
 
 WEB_UI_MUTATION_ACTIONS = {
@@ -130,6 +139,22 @@ WEB_UI_MUTATION_ACTIONS = {
     "selenium_switch_window",
     "selenium_select_frame",
     "selenium_unselect_frame",
+}
+
+MOBILE_UI_MUTATION_ACTIONS = {
+    "appium_open_application",
+    "appium_close_application",
+    "appium_close_all_applications",
+    "appium_click_element",
+    "appium_input_text",
+    "appium_clear_text",
+    "appium_long_press",
+    "appium_swipe",
+    "appium_scroll_down",
+    "appium_scroll_up",
+    "appium_background_app",
+    "appium_reset_application",
+    "appium_handle_common_interruptions",
 }
 
 
@@ -169,6 +194,17 @@ def _invalidate_browser_snapshot_cache(action_name: str, status: StepStatus) -> 
         invalidate_page_snapshot_cache()
     except Exception as exc:
         logger.debug("Unable to invalidate browser analysis cache: %s", exc)
+
+
+def _invalidate_mobile_snapshot_cache(action_name: str, status: StepStatus) -> None:
+    if status is not StepStatus.PASSED or action_name not in MOBILE_UI_MUTATION_ACTIONS:
+        return
+    try:
+        from .mobile_tools import invalidate_mobile_snapshot_cache
+
+        invalidate_mobile_snapshot_cache()
+    except Exception as exc:
+        logger.debug("Unable to invalidate mobile analysis cache: %s", exc)
 
 
 def _get_rf_output_dir():
@@ -606,6 +642,7 @@ def _record_tool_step(
         )
         _track_ui_action(session, action, status)
     _invalidate_browser_snapshot_cache(action, status)
+    _invalidate_mobile_snapshot_cache(action, status)
     _log_agentic_step_to_rf(
         action=action,
         description=description,

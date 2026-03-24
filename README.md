@@ -18,6 +18,7 @@ Supply a test area, scenario, or high-level test idea for a target application â
 - Supervisor orchestration remains available internally as a fallback path for unsupported or custom execution flows.
 - Instrumented tool bridge records step status, duration, assertion details, and screenshot references, surfacing them in RF logs via the `Agentic Step` keyword.
 - Browser analysis tools share a cached `get_page_snapshot` view and derive interactive elements, page structure, form fields, links, text content, and console errors from that shared page state.
+- Mobile analysis tools now reuse a cached Appium source snapshot across screen-summary and source-inspection calls until the UI changes.
 - Web and mobile executors can add minimal recovery actions when the requested flow is blocked by cookie banners, consent modals, permission dialogs, tutorials, or similar transient UI interruptions.
 - Utility tools provide assertions, JSON parsing, timing, RF variable access, and optional AIVision screenshot analysis.
 - RF built-in reporting with embedded screenshots, cached screenshot artifacts, and high-level step grouping when user-defined steps are provided.
@@ -286,6 +287,7 @@ Reuse Existing Web Session
 ## Safety & Guardrails
 
 - **Session reuse enforcement**: Existing Selenium/Appium sessions are reused and conflicting new sessions are refused.
+- **Destructive session protection**: Browser close/restart and mobile app close/reset/relaunch actions are blocked unless the user explicitly asked for them.
 - **Execution metadata**: `max_iterations` is passed into planner/executor prompts and stored on the active session for reporting.
 - **Session bookkeeping**: `timeout_seconds` and `max_cost_usd` initialize `SafetyGuard` metadata for the run.
 - **Post-run validation**: User-defined high-level steps and UI-action coverage are checked at session finalization for web/mobile runs.
@@ -330,11 +332,14 @@ running multiple overlapping DOM scans on every analysis step.
 ## Mobile State Analysis
 
 For mobile sessions, AIAgentic can inspect the current Appium source and summarize
-likely interruptions before continuing the requested flow.
+likely interruptions before continuing the requested flow. The current Appium
+source is cached per session so repeated calls do not re-fetch the same screen
+state unless a mutating Appium action succeeds or a refresh is requested.
 
 - `appium_get_view_snapshot` gives a compact screen summary with text preview and likely interruption candidates
+- `appium_get_source` and `appium_get_view_snapshot` reuse the same cached screen snapshot for better performance
 - `appium_handle_common_interruptions` can clear common transient blockers such as permission dialogs, update prompts, onboarding/tutorial screens, and similar modal interruptions
-- Mobile executor prompts now explicitly allow minimal recovery steps when user-defined steps are imprecise or temporarily blocked
+- Mobile executor prompts now explicitly allow minimal recovery steps when user-defined steps are imprecise or temporarily blocked, while preserving the current app session unless the user asked to restart it
 
 ## UI Element Scrolling
 

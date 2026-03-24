@@ -334,10 +334,22 @@ class AgentOrchestrator:
         elif mode == "mobile":
             rules.append(
                 "6. When the current screen is unclear, inspect it with "
-                "`appium_get_view_snapshot` or `appium_get_source`. If the "
+                "`appium_get_view_snapshot` first and fall back to "
+                "`appium_get_source` only when more detail is needed. If the "
                 "app is blocked by a permission, tutorial, or update "
                 "dialog, use `appium_handle_common_interruptions` before "
                 "retrying the target action."
+            )
+            rules.append(
+                "7. Simulate a normal user on the current device. Continue "
+                "from the current screen and navigate with visible taps, "
+                "swipes, scrolls, tabs, and menus instead of resetting or "
+                "relaunching the app to skip ahead."
+            )
+            rules.append(
+                "8. Preserve any open mobile session. Do not close, reset, "
+                "or relaunch the application as a recovery step unless the "
+                "user explicitly requested that action."
             )
         return rules
 

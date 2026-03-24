@@ -146,8 +146,8 @@ class TestSession:
         direct_url_navigations_used: Count of direct browser URL navigations used
             to enter the application.
         allowed_direct_urls: Concrete URLs explicitly requested by the user.
-        allow_browser_termination: Whether the user explicitly allowed closing
-            or restarting the current browser session.
+        allow_browser_termination: Whether the user explicitly allowed closing,
+            resetting, or restarting the current browser/app session.
         ui_interactions_total: Count of UI interaction tool calls.
         ui_state_checks_total: Count of UI state validation tool calls.
         ui_interactions_by_step: UI interaction counts per high-level step.

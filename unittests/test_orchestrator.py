@@ -121,6 +121,29 @@ def test_run_extracts_numbered_steps_from_objective(monkeypatch):
     assert "2. Sign in with valid credentials" in executor.calls[0]
 
 
+def test_run_skips_planner_for_mobile_user_defined_steps(monkeypatch):
+    orchestrator = build_orchestrator(monkeypatch, {"AppiumLibrary": object()})
+
+    result = orchestrator.run(
+        objective="USER-DEFINED TEST STEPS (MAIN FLOW, HIGHEST PRIORITY):\n1. Complete onboarding",
+        app_context="Android app",
+        test_mode="mobile",
+        max_iterations=5,
+        high_level_steps=["Complete onboarding", "Verify dashboard"],
+    )
+
+    planner = get_agent("Test Planner")
+    executor = get_agent("Mobile Executor")
+
+    assert result == "Mobile Executor executed"
+    assert len(planner.calls) == 0
+    assert "User-defined Main Flow:" in executor.calls[0]
+    assert "appium_get_view_snapshot" in executor.calls[0]
+    assert "appium_handle_common_interruptions" in executor.calls[0]
+    assert "navigate with visible taps, swipes, scrolls" in executor.calls[0]
+    assert "Do not close, reset, or relaunch the application" in executor.calls[0]
+
+
 def test_run_exploration_uses_direct_executor(monkeypatch):
     orchestrator = build_orchestrator(monkeypatch, {"SeleniumLibrary": object()})
 

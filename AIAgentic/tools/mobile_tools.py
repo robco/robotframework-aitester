@@ -10,6 +10,7 @@ via robotframework-appiumlibrary.
 
 import logging
 import xml.etree.ElementTree as ET
+from typing import Any, Dict
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
@@ -17,6 +18,7 @@ from .common_tools import instrument_tool_list, _normalize_screenshot_filename
 from ..executor import get_active_session
 
 logger = logging.getLogger(__name__)
+_MOBILE_SNAPSHOT_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 def _get_appium():
@@ -44,6 +46,17 @@ def _should_scroll_into_view() -> bool:
     if not session:
         return True
     return bool(session.scroll_into_view)
+
+
+def _get_snapshot_cache_key(driver) -> str:
+    return str(getattr(driver, "session_id", None) or id(driver))
+
+
+def invalidate_mobile_snapshot_cache(driver=None) -> None:
+    if driver is None:
+        _MOBILE_SNAPSHOT_CACHE.clear()
+        return
+    _MOBILE_SNAPSHOT_CACHE.pop(_get_snapshot_cache_key(driver), None)
 
 
 def _maybe_scroll_into_view(al, locator: str) -> None:
@@ -136,6 +149,63 @@ def _build_mobile_snapshot(source: str) -> dict:
         "interruptions": interruptions,
         "parse_error": None,
     }
+
+
+def _get_mobile_snapshot_data(force_refresh: bool = False) -> Dict[str, Any]:
+    al = _get_appium()
+    driver = al._current_application()
+    cache_key = _get_snapshot_cache_key(driver)
+    if force_refresh or cache_key not in _MOBILE_SNAPSHOT_CACHE:
+        source = al.get_source()
+        snapshot = _build_mobile_snapshot(source)
+        snapshot.update(
+            {
+                "source": source,
+                "context": _read_driver_value(driver, "current_context"),
+                "activity": _read_driver_value(driver, "current_activity"),
+                "package": _read_driver_value(driver, "current_package"),
+                "platform": _read_driver_capability(
+                    driver,
+                    "platformName",
+                    "appium:platformName",
+                    "platform",
+                ),
+                "device": _read_driver_capability(
+                    driver,
+                    "deviceName",
+                    "appium:deviceName",
+                ),
+            }
+        )
+        _MOBILE_SNAPSHOT_CACHE[cache_key] = snapshot
+    return _MOBILE_SNAPSHOT_CACHE[cache_key]
+
+
+def _read_driver_value(driver, attr_name: str) -> str:
+    if driver is None:
+        return ""
+    try:
+        value = getattr(driver, attr_name, None)
+        if callable(value):
+            value = value()
+        return str(value).strip() if value else ""
+    except Exception as exc:
+        logger.debug("Unable to read driver attribute %s: %s", attr_name, exc)
+        return ""
+
+
+def _read_driver_capability(driver, *keys: str) -> str:
+    caps = getattr(driver, "capabilities", None) or getattr(driver, "desired_capabilities", None)
+    if not isinstance(caps, dict):
+        return ""
+    normalized = {str(key).lower(): value for key, value in caps.items()}
+    for key in keys:
+        if key in caps and caps[key]:
+            return str(caps[key]).strip()
+        lowered = str(key).lower()
+        if lowered in normalized and normalized[lowered]:
+            return str(normalized[lowered]).strip()
+    return ""
 
 
 def _classify_mobile_interruption(label: str, context: str, node):
@@ -243,6 +313,25 @@ def _build_mobile_text_locator(label: str) -> str:
     )
 
 
+def _assert_application_termination_allowed(action_name: str, al=None) -> None:
+    session = get_active_session()
+    if not session or session.test_mode != "mobile":
+        return
+    if getattr(session, "allow_browser_termination", False):
+        return
+    al = al or _get_appium()
+    try:
+        al._current_application()
+    except Exception:
+        return
+    raise AssertionError(
+        f"{action_name} is blocked while a mobile app session is open. Preserve "
+        "the current application state to avoid losing login state, navigation "
+        "progress, and pre-set test data. Close, reset, or relaunch the app only "
+        "when the user explicitly requests that action."
+    )
+
+
 # ---------------------------------------------------------------------------
 # App lifecycle
 # ---------------------------------------------------------------------------
@@ -311,6 +400,7 @@ def appium_close_application() -> str:
         Confirmation message.
     """
     al = _get_appium()
+    _assert_application_termination_allowed("appium_close_application", al)
     al.close_application()
     return "Application closed"
 
@@ -323,6 +413,7 @@ def appium_close_all_applications() -> str:
         Confirmation message.
     """
     al = _get_appium()
+    _assert_application_termination_allowed("appium_close_all_applications", al)
     al.close_all_applications()
     return "All applications closed"
 
@@ -350,6 +441,7 @@ def appium_reset_application() -> str:
         Confirmation message.
     """
     al = _get_appium()
+    _assert_application_termination_allowed("appium_reset_application", al)
     al.reset_application()
     return "Application reset"
 
@@ -659,28 +751,44 @@ def appium_capture_page_screenshot(filename: str = None) -> str:
 # ---------------------------------------------------------------------------
 
 @tool
-def appium_get_source() -> str:
+def appium_get_source(refresh: bool = False) -> str:
     """Gets the page/screen source XML of the current mobile view.
+
+    Args:
+        refresh: Whether to force a fresh Appium source fetch.
 
     Returns:
         The page source XML (may be truncated for very large screens).
     """
-    al = _get_appium()
-    source = al.get_source()
+    snapshot = _get_mobile_snapshot_data(force_refresh=bool(refresh))
+    source = snapshot.get("source", "")
     if len(source) > 5000:
-        return source[:5000] + "\n... [truncated]"
+        source = source[:5000] + "\n... [truncated]"
     return f"Page source:\n{source}"
 
 
 @tool
-def appium_get_view_snapshot() -> str:
+def appium_get_view_snapshot(refresh: bool = False) -> str:
     """Gets a compact summary of the current mobile screen."""
-    al = _get_appium()
-    snapshot = _build_mobile_snapshot(al.get_source())
+    snapshot = _get_mobile_snapshot_data(force_refresh=bool(refresh))
     if snapshot["parse_error"]:
         return snapshot["parse_error"]
 
-    lines = ["Screen text preview:"]
+    lines = []
+    if snapshot.get("platform"):
+        lines.append(f"Platform: {snapshot['platform']}")
+    if snapshot.get("device"):
+        lines.append(f"Device: {snapshot['device']}")
+    if snapshot.get("context"):
+        lines.append(f"Context: {snapshot['context']}")
+    if snapshot.get("activity"):
+        lines.append(f"Activity: {snapshot['activity']}")
+    if snapshot.get("package"):
+        lines.append(f"Package: {snapshot['package']}")
+    if lines:
+        lines.append("")
+
+    lines.append("Screen text preview:")
     preview = snapshot["text_preview"][:10]
     if preview:
         for text in preview:
@@ -719,9 +827,10 @@ def appium_handle_common_interruptions(
     max_actions = max(1, min(int(max_actions), 3))
     handled = []
     attempted = set()
+    driver = al._current_application()
 
     while len(handled) < max_actions:
-        snapshot = _build_mobile_snapshot(al.get_source())
+        snapshot = _get_mobile_snapshot_data(force_refresh=bool(handled))
         candidates = [
             item
             for item in snapshot["interruptions"]
@@ -741,6 +850,7 @@ def appium_handle_common_interruptions(
                 handled.append(
                     f"{candidate['category']} -> {candidate['label']}"
                 )
+                invalidate_mobile_snapshot_cache(driver)
                 clicked = True
                 break
             except Exception as exc:
