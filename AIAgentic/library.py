@@ -538,6 +538,36 @@ class AIAgentic:
         )
         return any(keyword in lowered for keyword in keywords)
 
+    @staticmethod
+    def _allows_state_check_only_step(text: str) -> bool:
+        if not text:
+            return False
+        if AIAgentic._is_verification_step(text):
+            return True
+        lowered = text.lower()
+        keywords = (
+            "leave empty",
+            "leave blank",
+            "keep empty",
+            "keep blank",
+            "remain empty",
+            "remain blank",
+            "stay empty",
+            "stay blank",
+            "stays empty",
+            "stays blank",
+            "be empty",
+            "be blank",
+            "is empty",
+            "is blank",
+            "do not fill",
+            "don't fill",
+            "dont fill",
+            "without entering",
+            "without filling",
+        )
+        return any(keyword in lowered for keyword in keywords)
+
     def _validate_ui_action_coverage(self, session) -> Optional[str]:
         if session.test_mode not in {"web", "mobile"}:
             return None
@@ -553,7 +583,7 @@ class AIAgentic:
             if interactions == 0 and state_checks == 0:
                 missing.append(f"{idx}. {step_text}")
                 continue
-            if interactions == 0 and not self._is_verification_step(step_text):
+            if interactions == 0 and not self._allows_state_check_only_step(step_text):
                 missing.append(f"{idx}. {step_text}")
         if missing:
             return "No UI interaction actions were recorded for the following steps:\n" + "\n".join(missing)

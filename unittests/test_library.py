@@ -7,6 +7,7 @@ import os
 import shutil
 import pytest
 
+from AIAgentic.executor import create_session
 from AIAgentic.library import AIAgentic
 
 
@@ -53,7 +54,6 @@ def test_extract_user_defined_steps_from_list_objective():
 
 def test_validate_user_step_completion_fails_on_missing():
     agentic = AIAgentic()
-    from AIAgentic.executor import create_session
 
     session = create_session(
         objective="Test",
@@ -65,6 +65,43 @@ def test_validate_user_step_completion_fails_on_missing():
     msg = agentic._validate_user_step_completion(session)
     assert msg is not None
     assert "No recorded actions" in msg
+
+
+def test_validate_ui_action_coverage_allows_leave_empty_state_checks():
+    agentic = AIAgentic()
+
+    session = create_session(
+        objective="Test",
+        app_context="App",
+        test_mode="web",
+        max_iterations=1,
+        high_level_steps=["Contact phone number field leave empty"],
+    )
+    session.ui_state_checks_total = 2
+    session.ui_state_checks_by_step[1] = 2
+
+    msg = agentic._validate_ui_action_coverage(session)
+
+    assert msg is None
+
+
+def test_validate_ui_action_coverage_requires_interaction_for_action_step():
+    agentic = AIAgentic()
+
+    session = create_session(
+        objective="Test",
+        app_context="App",
+        test_mode="web",
+        max_iterations=1,
+        high_level_steps=["Click submit button"],
+    )
+    session.ui_state_checks_total = 1
+    session.ui_state_checks_by_step[1] = 1
+
+    msg = agentic._validate_ui_action_coverage(session)
+
+    assert msg is not None
+    assert "1. Click submit button" in msg
 
 
 def test_extract_user_defined_steps_from_numbered_list():
