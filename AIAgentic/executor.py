@@ -146,6 +146,8 @@ class TestSession:
         direct_url_navigations_used: Count of direct browser URL navigations used
             to enter the application.
         allowed_direct_urls: Concrete URLs explicitly requested by the user.
+        allow_browser_termination: Whether the user explicitly allowed closing
+            or restarting the current browser session.
         ui_interactions_total: Count of UI interaction tool calls.
         ui_state_checks_total: Count of UI state validation tool calls.
         ui_interactions_by_step: UI interaction counts per high-level step.
@@ -175,6 +177,7 @@ class TestSession:
     scroll_into_view: bool = True
     direct_url_navigations_used: int = 0
     allowed_direct_urls: List[str] = field(default_factory=list)
+    allow_browser_termination: bool = False
     ui_interactions_total: int = 0
     ui_state_checks_total: int = 0
     ui_interactions_by_step: Dict[int, int] = field(default_factory=dict)
@@ -259,6 +262,7 @@ class TestSession:
             "high_level_steps": self.high_level_steps,
             "direct_url_navigations_used": self.direct_url_navigations_used,
             "allowed_direct_urls": self.allowed_direct_urls,
+            "allow_browser_termination": self.allow_browser_termination,
             "scenarios": [
                 {
                     "scenario_id": s.scenario_id,
@@ -449,6 +453,7 @@ def create_session(
     start_state_summary: Optional[str] = None,
     scroll_into_view: bool = True,
     allowed_direct_urls: Optional[List[str]] = None,
+    allow_browser_termination: bool = False,
 ) -> TestSession:
     """Factory function to create a new test session.
 
@@ -479,6 +484,7 @@ def create_session(
         start_state_summary=start_state_summary,
         scroll_into_view=scroll_into_view,
         allowed_direct_urls=allowed_direct_urls or [],
+        allow_browser_termination=allow_browser_termination,
     )
 
 

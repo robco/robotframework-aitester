@@ -859,6 +859,32 @@ class AIAgentic:
                     found.append(url)
         return found
 
+    @staticmethod
+    def _allows_explicit_browser_termination(*values: Any) -> bool:
+        positive_patterns = (
+            re.compile(r"\b(?:close|quit|exit)\s+(?:all\s+)?browsers?\b"),
+            re.compile(r"\b(?:restart|reopen|relaunch)\s+(?:the\s+)?browser\b"),
+            re.compile(r"\breset\s+(?:the\s+)?browser\s+session\b"),
+            re.compile(r"\b(?:open|start|launch)\s+(?:a\s+)?new\s+browser(?:\s+session)?\b"),
+        )
+        negation_pattern = re.compile(r"\b(?:do\s+not|don't|dont|never|avoid|without)\b")
+
+        for value in values:
+            if not value:
+                continue
+            if isinstance(value, (list, tuple)):
+                text = "\n".join(str(item) for item in value)
+            else:
+                text = str(value)
+            lowered = text.lower()
+            for pattern in positive_patterns:
+                for match in pattern.finditer(lowered):
+                    prefix = lowered[max(0, match.start() - 24):match.start()]
+                    if negation_pattern.search(prefix):
+                        continue
+                    return True
+        return False
+
     def _start_session(
         self,
         objective: str,
@@ -870,6 +896,7 @@ class AIAgentic:
         start_state_summary: Optional[str] = None,
         scroll_into_view: bool = True,
         allowed_direct_urls: Optional[List[str]] = None,
+        allow_browser_termination: bool = False,
     ):
         session = create_session(
             objective=objective,
@@ -881,6 +908,7 @@ class AIAgentic:
             start_state_summary=start_state_summary,
             scroll_into_view=scroll_into_view,
             allowed_direct_urls=allowed_direct_urls,
+            allow_browser_termination=allow_browser_termination,
         )
         set_active_session(session)
         return session
@@ -1244,6 +1272,11 @@ class AIAgentic:
             test_steps,
             app_context,
         )
+        allow_browser_termination = self._allows_explicit_browser_termination(
+            test_objective,
+            test_steps,
+            app_context,
+        )
         start_state, reuse_existing_session = self._resolve_start_state_and_reuse(mode)
         scroll_flag = self._coerce_bool(scroll_into_view, default=True)
         app_context = self._merge_app_context(app_context, start_state)
@@ -1257,6 +1290,7 @@ class AIAgentic:
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
             allowed_direct_urls=explicit_urls,
+            allow_browser_termination=allow_browser_termination,
         )
 
         rf_logger.info(f"Starting agentic test: mode={mode}, max_iterations={iters}")
@@ -1354,6 +1388,10 @@ class AIAgentic:
 
         iters = int(max_iterations) if max_iterations else self.max_iterations
         explicit_urls = self._extract_explicit_urls(app_context, focus_areas)
+        allow_browser_termination = self._allows_explicit_browser_termination(
+            app_context,
+            focus_areas,
+        )
         start_state, reuse_existing_session = self._resolve_start_state_and_reuse(self.test_mode)
         scroll_flag = self._coerce_bool(scroll_into_view, default=True)
         app_context = self._merge_app_context(app_context, start_state)
@@ -1366,6 +1404,7 @@ class AIAgentic:
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
             allowed_direct_urls=explicit_urls,
+            allow_browser_termination=allow_browser_termination,
         )
 
         rf_logger.info(f"Starting exploratory test: focus={focus_areas}")
@@ -1476,6 +1515,12 @@ class AIAgentic:
             base_url,
             api_spec_url,
         )
+        allow_browser_termination = self._allows_explicit_browser_termination(
+            test_objective,
+            test_steps,
+            base_url,
+            api_spec_url,
+        )
 
         app_context = "REST API"
         if base_url:
@@ -1492,6 +1537,7 @@ class AIAgentic:
             high_level_steps=high_level_steps,
             scroll_into_view=scroll_flag,
             allowed_direct_urls=explicit_urls,
+            allow_browser_termination=allow_browser_termination,
         )
 
         rf_logger.info(f"Starting agentic API test: {app_context}")
@@ -1599,6 +1645,11 @@ class AIAgentic:
             test_steps,
             app_context,
         )
+        allow_browser_termination = self._allows_explicit_browser_termination(
+            test_objective,
+            test_steps,
+            app_context,
+        )
 
         rf_logger.info("Starting agentic mobile test")
 
@@ -1615,6 +1666,7 @@ class AIAgentic:
             start_state_summary=start_state,
             scroll_into_view=scroll_flag,
             allowed_direct_urls=explicit_urls,
+            allow_browser_termination=allow_browser_termination,
         )
         if high_level_steps:
             self._log_user_defined_steps(high_level_steps)

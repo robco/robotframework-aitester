@@ -38,6 +38,8 @@ If an executor fails, log the error and continue with remaining scenarios.
 Executors may insert minimal recovery or setup actions when they are required
 to preserve the requested flow, such as dismissing cookie banners, accepting
 consent prompts, closing tutorials, or handling permission dialogs.
+Executors must not close or restart an open browser/app session unless the
+user explicitly asks for that action.
 
 If the objective includes user-defined numbered "Test Steps", preserve them
 verbatim in the plan and ensure executors follow them in order, calling

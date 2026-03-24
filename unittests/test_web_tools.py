@@ -13,6 +13,8 @@ class DummySelenium:
         self.clicked = []
         self.navigated = []
         self.opened = []
+        self.closed = 0
+        self.closed_all = 0
 
     def click_element(self, locator):
         self.clicked.append(locator)
@@ -25,6 +27,12 @@ class DummySelenium:
 
     def open_browser(self, url, browser):
         self.opened.append((url, browser))
+
+    def close_browser(self):
+        self.closed += 1
+
+    def close_all_browsers(self):
+        self.closed_all += 1
 
 
 def test_selenium_handle_common_blockers_clicks_detected_action(monkeypatch):
@@ -194,5 +202,40 @@ def test_selenium_open_browser_records_initial_direct_navigation(monkeypatch):
         assert result == "Browser opened and navigated to https://example.test"
         assert dummy.opened == [("https://example.test", "chrome")]
         assert session.direct_url_navigations_used == 1
+    finally:
+        set_active_session(None)
+
+
+def test_selenium_close_all_browsers_blocks_when_not_explicitly_requested(monkeypatch):
+    session = create_session("test", "app", test_mode="web")
+    dummy = DummySelenium(browser_ids=[1])
+    set_active_session(session)
+    try:
+        monkeypatch.setattr(web_tools, "_get_selenium", lambda: dummy)
+
+        with pytest.raises(AssertionError, match="only when the user explicitly requests it"):
+            web_tools.selenium_close_all_browsers()
+
+        assert dummy.closed_all == 0
+    finally:
+        set_active_session(None)
+
+
+def test_selenium_close_browser_allows_explicit_user_requested_restart(monkeypatch):
+    session = create_session(
+        "restart browser",
+        "app",
+        test_mode="web",
+        allow_browser_termination=True,
+    )
+    dummy = DummySelenium(browser_ids=[1])
+    set_active_session(session)
+    try:
+        monkeypatch.setattr(web_tools, "_get_selenium", lambda: dummy)
+
+        result = web_tools.selenium_close_browser()
+
+        assert result == "Browser closed"
+        assert dummy.closed == 1
     finally:
         set_active_session(None)

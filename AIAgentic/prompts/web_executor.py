@@ -34,6 +34,10 @@ Tool usage:
   start from that current page and do NOT open a new browser.
 - Use `selenium_open_browser` only when the Start State says no active browser session
   and you need the initial entry point of the application.
+- Preserve any open browser session. Do NOT use `selenium_close_browser` or
+  `selenium_close_all_browsers` as generic recovery for page issues, tool errors,
+  or unclear state. Only close or restart the browser when the user explicitly
+  requests that action.
 - Use `selenium_go_to` only for the initial entry into the application when no browser
   session is already active. Do NOT use it to jump to internal pages or skip ahead,
   unless the user explicitly instructs a concrete URL to open.
@@ -59,6 +63,8 @@ Tool usage:
 - When a user step is vague, infer the shortest concrete action sequence that would satisfy it,
   then verify the intended outcome with assertions or state checks.
 - Retry a blocked action once after refreshing page state or clearing a transient blocker.
+- If page-analysis tools fail, keep the browser open, switch to other non-destructive
+  checks when possible, and report the failure instead of restarting the browser.
 - Step recording is automatic. Do NOT call `record_step` unless explicitly asked.
 
 Locator strategies: id, name, css, xpath, link_text.

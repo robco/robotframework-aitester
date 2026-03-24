@@ -63,6 +63,7 @@ class TestTestSession:
         assert session.scroll_into_view is True
         assert session.direct_url_navigations_used == 0
         assert session.allowed_direct_urls == []
+        assert session.allow_browser_termination is False
 
     def test_create_session_reuse_flags(self):
         session = create_session(
@@ -131,6 +132,7 @@ class TestTestSession:
         assert data["high_level_steps"] == ["Step A"]
         assert data["direct_url_navigations_used"] == 0
         assert data["allowed_direct_urls"] == []
+        assert data["allow_browser_termination"] is False
 
     def test_record_step_function(self):
         session = create_session("test", "app")

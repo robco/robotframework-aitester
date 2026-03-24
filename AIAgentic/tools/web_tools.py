@@ -140,6 +140,28 @@ def _record_direct_url_navigation() -> None:
     session.direct_url_navigations_used += 1
 
 
+def _assert_browser_termination_allowed(action_name: str, sl=None) -> None:
+    session = get_active_session()
+    if not session or session.test_mode != "web":
+        return
+    if getattr(session, "allow_browser_termination", False):
+        return
+    sl = sl or _get_selenium()
+    try:
+        browser_ids = sl.get_browser_ids()
+    except Exception as exc:
+        logger.debug("Unable to detect open browser windows for %s: %s", action_name, exc)
+        browser_ids = []
+    if not browser_ids:
+        return
+    raise AssertionError(
+        f"{action_name} is blocked while a browser session is open. Preserve the "
+        "current browser to avoid losing login state and pre-set test "
+        "environment. Close or restart the browser only when the user "
+        "explicitly requests it."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Browser control
 # ---------------------------------------------------------------------------
@@ -199,6 +221,7 @@ def selenium_close_browser() -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _assert_browser_termination_allowed("selenium_close_browser", sl)
     sl.close_browser()
     return "Browser closed"
 
@@ -211,6 +234,7 @@ def selenium_close_all_browsers() -> str:
         Confirmation message.
     """
     sl = _get_selenium()
+    _assert_browser_termination_allowed("selenium_close_all_browsers", sl)
     sl.close_all_browsers()
     return "All browsers closed"
 

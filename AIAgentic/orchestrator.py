@@ -326,6 +326,11 @@ class AgentOrchestrator:
                 "breadcrumbs, and other UI controls instead of jumping to URLs, "
                 "unless the user explicitly instructs a concrete URL to open."
             )
+            rules.append(
+                "8. Preserve any open browser session. Do not close or restart "
+                "the browser as a recovery step unless the user explicitly "
+                "requested that action."
+            )
         elif mode == "mobile":
             rules.append(
                 "6. When the current screen is unclear, inspect it with "

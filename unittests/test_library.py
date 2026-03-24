@@ -105,6 +105,26 @@ def test_extract_explicit_urls_deduplicates_user_requested_targets():
     ]
 
 
+def test_allows_explicit_browser_termination_for_restart_request():
+    agentic = AIAgentic()
+
+    allowed = agentic._allows_explicit_browser_termination(
+        "If page analysis gets stuck, restart the browser and continue."
+    )
+
+    assert allowed is True
+
+
+def test_allows_explicit_browser_termination_respects_negation():
+    agentic = AIAgentic()
+
+    allowed = agentic._allows_explicit_browser_termination(
+        "Do not close the browser. Preserve the logged in session."
+    )
+
+    assert allowed is False
+
+
 def test_prepare_screenshot_artifact_reuses_cached_copy(tmp_path, monkeypatch):
     agentic = AIAgentic()
     source_dir = tmp_path / "source"
