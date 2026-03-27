@@ -116,21 +116,202 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
             style.visibility !== 'hidden';
     }
 
+    function normalizeSpace(value) {
+        return String(value || '').replace(/\\s+/g, ' ').trim();
+    }
+
+    function getElementText(element, limit) {
+        if (!element) return '';
+        return safeText(
+            normalizeSpace(
+                element.innerText || element.textContent ||
+                element.getAttribute('aria-label') || element.value || ''
+            ),
+            limit
+        );
+    }
+
+    function getControlledPopupRoots(element) {
+        const roots = [];
+
+        function push(candidate) {
+            if (!candidate || roots.includes(candidate)) return;
+            roots.push(candidate);
+        }
+
+        function pushIds(rawValue) {
+            normalizeSpace(rawValue).split(' ').filter(Boolean).forEach(id => {
+                push(document.getElementById(id));
+            });
+        }
+
+        if (!element) return roots;
+
+        pushIds(element.getAttribute('aria-controls'));
+        pushIds(element.getAttribute('aria-owns'));
+
+        const owner = element.closest('[role="combobox"], [role="listbox"]');
+        if (owner) {
+            push(owner);
+            pushIds(owner.getAttribute('aria-controls'));
+            pushIds(owner.getAttribute('aria-owns'));
+        }
+
+        document.querySelectorAll(
+            '[role="listbox"], [role="menu"], [role="tree"], [role="grid"], ' +
+            '[data-state="open"], [data-open="true"], [data-headlessui-state]'
+        ).forEach(candidate => {
+            if (isVisible(candidate)) push(candidate);
+        });
+
+        return roots;
+    }
+
+    function collectOptionLikeEntries(element, limit) {
+        const options = [];
+        const seen = new Set();
+
+        function pushOption(candidate) {
+            if (!candidate || options.length >= limit) return;
+            const text = getElementText(candidate, 80);
+            const value = safeText(
+                normalizeSpace(
+                    candidate.value ||
+                    candidate.getAttribute('value') ||
+                    candidate.getAttribute('data-value') ||
+                    candidate.getAttribute('data-key') ||
+                    ''
+                ),
+                80
+            ) || null;
+            const key = (text || '') + '|' + (value || '');
+            if ((!text && !value) || seen.has(key)) return;
+            seen.add(key);
+            options.push({
+                text: text || null,
+                value: value,
+                selected: candidate.selected || candidate.getAttribute('aria-selected') === 'true',
+                disabled: candidate.disabled || candidate.getAttribute('aria-disabled') === 'true',
+            });
+        }
+
+        if (!element) return options;
+
+        if (element.tagName && element.tagName.toLowerCase() === 'select') {
+            Array.from(element.options || []).forEach(option => pushOption(option));
+            return options;
+        }
+
+        const optionSelectors = [
+            '[role="option"]',
+            '[role="menuitem"]',
+            '[role="menuitemradio"]',
+            '[role="menuitemcheckbox"]',
+            '[data-value]',
+            'li',
+            'button',
+        ];
+
+        getControlledPopupRoots(element).forEach(root => {
+            root.querySelectorAll(optionSelectors.join(', ')).forEach(candidate => {
+                if (!isVisible(candidate) || candidate === element) return;
+                pushOption(candidate);
+            });
+        });
+
+        return options;
+    }
+
+    function describeControl(element) {
+        const tag = element.tagName.toLowerCase();
+        const role = (element.getAttribute('role') || '').toLowerCase();
+        const type = (element.type || '').toLowerCase();
+        const hasPopup = (element.getAttribute('aria-haspopup') || '').toLowerCase();
+        const autocomplete = (element.getAttribute('aria-autocomplete') || '').toLowerCase();
+        const expandedAttr = element.getAttribute('aria-expanded');
+        const activeDescendantId = element.getAttribute('aria-activedescendant');
+        const activeDescendant = activeDescendantId
+            ? document.getElementById(activeDescendantId)
+            : null;
+
+        let controlKind = 'interactive';
+        if (tag === 'select') {
+            controlKind = 'native-select';
+        } else if (
+            role === 'combobox' ||
+            role === 'listbox' ||
+            hasPopup === 'listbox' ||
+            hasPopup === 'menu'
+        ) {
+            controlKind = 'custom-dropdown';
+        } else if (tag === 'textarea') {
+            controlKind = 'textarea';
+        } else if (tag === 'button' || role === 'button') {
+            controlKind = 'button';
+        } else if (tag === 'a' || role === 'link') {
+            controlKind = 'link';
+        } else if (tag === 'input') {
+            if (type === 'checkbox' || type === 'radio') {
+                controlKind = type;
+            } else if (type) {
+                controlKind = 'input-' + type;
+            } else {
+                controlKind = 'input';
+            }
+        } else if (role) {
+            controlKind = role;
+        }
+
+        const details = {
+            control_kind: controlKind,
+            expanded: expandedAttr === null ? null : expandedAttr === 'true',
+            has_popup: hasPopup || null,
+            autocomplete: autocomplete || null,
+            selected_text: null,
+            options: [],
+        };
+
+        if (tag === 'select') {
+            details.selected_text = safeText(
+                Array.from(element.selectedOptions || [])
+                    .map(option => normalizeSpace(option.textContent))
+                    .filter(Boolean)
+                    .join(', '),
+                120
+            ) || null;
+            details.options = collectOptionLikeEntries(element, 12);
+        } else if (controlKind === 'custom-dropdown') {
+            details.selected_text = getElementText(
+                activeDescendant || element,
+                120
+            ) || null;
+            details.options = collectOptionLikeEntries(element, 12);
+        }
+
+        return details;
+    }
+
     function collectFormFields(formElement) {
         const fields = [];
-        formElement.querySelectorAll('input, select, textarea, button').forEach((element, index) => {
+        formElement.querySelectorAll(
+            'input, select, textarea, button, [role="combobox"], [role="listbox"], ' +
+            '[aria-haspopup="listbox"], [aria-haspopup="menu"]'
+        ).forEach((element, index) => {
             if (index >= 25) return;
             fields.push({
                 tag: element.tagName.toLowerCase(),
                 type: element.type || null,
                 name: element.name || null,
                 id: element.id || null,
+                locator: getLocator(element),
                 placeholder: element.placeholder || null,
                 required: element.required || false,
                 value: safeText(element.value, 120) || null,
                 label: element.labels && element.labels.length > 0
                     ? safeText(element.labels[0].textContent, 120)
                     : null,
+                role: element.getAttribute('role') || null,
+                ...describeControl(element),
             });
         });
         return fields;
@@ -343,10 +524,14 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
             'input',
             'select',
             'textarea',
+            '[role="combobox"]',
+            '[role="listbox"]',
             '[role="button"]',
             '[role="link"]',
             '[role="tab"]',
             '[role="menuitem"]',
+            '[aria-haspopup="listbox"]',
+            '[aria-haspopup="menu"]',
             '[onclick]',
             '[tabindex]',
         ];
@@ -470,10 +655,14 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         'input',
         'select',
         'textarea',
+        '[role="combobox"]',
+        '[role="listbox"]',
         '[role="button"]',
         '[role="link"]',
         '[role="tab"]',
         '[role="menuitem"]',
+        '[aria-haspopup="listbox"]',
+        '[aria-haspopup="menu"]',
         '[onclick]',
         '[tabindex]',
     ];
@@ -499,6 +688,7 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
                 disabled: element.disabled || false,
                 class: element.className ? String(element.className).substring(0, 80) : null,
                 locator: getLocator(element),
+                ...describeControl(element),
             });
         });
     });
@@ -513,7 +703,10 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
 
     document.querySelectorAll('form').forEach((formElement, index) => {
         if (index >= 10) return;
-        const inputs = formElement.querySelectorAll('input, select, textarea');
+        const inputs = formElement.querySelectorAll(
+            'input, select, textarea, [role="combobox"], [role="listbox"], ' +
+            '[aria-haspopup="listbox"], [aria-haspopup="menu"]'
+        );
         snapshot.forms.push({
             index: index,
             id: formElement.id || null,
@@ -658,8 +851,22 @@ def _format_interactive_elements(elements) -> str:
         if element_type:
             description += f" type={element_type}"
         description += f"> locator={locator}"
+        control_kind = element.get("control_kind")
+        if control_kind:
+            description += f" kind={control_kind}"
         if text:
             description += f' text="{text}"'
+        selected_text = element.get("selected_text")
+        if selected_text:
+            description += f' selected="{selected_text[:50]}"'
+        options = element.get("options") or []
+        if options:
+            option_preview = ", ".join(
+                option.get("text") or option.get("value") or "?"
+                for option in options[:4]
+            )
+            if option_preview:
+                description += f" options=[{option_preview[:80]}]"
         summary_lines.append(description)
     return "\n".join(summary_lines)
 
@@ -955,10 +1162,50 @@ def get_form_fields(form_locator: str = "css=form") -> str:
         js_code = f"""
         const form = document.querySelector({css_literal});
         if (!form) return JSON.stringify([]);
+        function normalizeSpace(value) {{
+            return String(value || '').replace(/\\s+/g, ' ').trim();
+        }}
+        function getElementText(element, limit) {{
+            if (!element) return '';
+            return normalizeSpace(
+                (element.innerText || element.textContent ||
+                    element.getAttribute('aria-label') || element.value || '')
+            ).substring(0, limit);
+        }}
+        function collectOptions(element, limit) {{
+            if (!element) return [];
+            if (element.tagName && element.tagName.toLowerCase() === 'select') {{
+                return Array.from(element.options || []).slice(0, limit).map(option => ({{
+                    text: getElementText(option, 80) || null,
+                    value: normalizeSpace(option.value || option.getAttribute('value') || '').substring(0, 80) || null,
+                    selected: option.selected || false,
+                    disabled: option.disabled || false,
+                }}));
+            }}
+            return [];
+        }}
         const fields = [];
-        form.querySelectorAll('input, select, textarea, button').forEach(el => {{
+        form.querySelectorAll(
+            'input, select, textarea, button, [role="combobox"], [role="listbox"], ' +
+            '[aria-haspopup="listbox"], [aria-haspopup="menu"]'
+        ).forEach(el => {{
+            const tag = el.tagName.toLowerCase();
+            const role = (el.getAttribute('role') || '').toLowerCase();
+            const hasPopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
+            let controlKind = 'interactive';
+            if (tag === 'select') {{
+                controlKind = 'native-select';
+            }} else if (role === 'combobox' || role === 'listbox' || hasPopup === 'listbox' || hasPopup === 'menu') {{
+                controlKind = 'custom-dropdown';
+            }} else if (tag === 'input') {{
+                controlKind = el.type ? 'input-' + el.type.toLowerCase() : 'input';
+            }} else if (tag === 'textarea') {{
+                controlKind = 'textarea';
+            }} else if (tag === 'button') {{
+                controlKind = 'button';
+            }}
             fields.push({{
-                tag: el.tagName.toLowerCase(),
+                tag: tag,
                 type: el.type || null,
                 name: el.name || null,
                 id: el.id || null,
@@ -966,6 +1213,12 @@ def get_form_fields(form_locator: str = "css=form") -> str:
                 required: el.required || false,
                 value: el.value || null,
                 label: el.labels && el.labels.length > 0 ? el.labels[0].textContent.trim() : null,
+                role: role || null,
+                control_kind: controlKind,
+                selected_text: tag === 'select'
+                    ? Array.from(el.selectedOptions || []).map(option => getElementText(option, 80)).filter(Boolean).join(', ') || null
+                    : null,
+                options: collectOptions(el, 12),
             }});
         }});
         return JSON.stringify(fields);
@@ -976,9 +1229,23 @@ def get_form_fields(form_locator: str = "css=form") -> str:
     for field in fields:
         name = field.get("name") or field.get("id") or "unnamed"
         field_type = field.get("type") or field.get("tag")
+        control_kind = field.get("control_kind")
+        if control_kind and control_kind not in {field_type, field.get("tag")}:
+            field_type = f"{field_type}/{control_kind}"
         label = field.get("label") or field.get("placeholder") or ""
         required = " [REQUIRED]" if field.get("required") else ""
         lines.append(f"  - {name} ({field_type}){required}: {label}")
+        selected_text = field.get("selected_text")
+        if selected_text:
+            lines.append(f"    selected: {selected_text[:80]}")
+        options = field.get("options") or []
+        if options:
+            option_preview = ", ".join(
+                option.get("text") or option.get("value") or "?"
+                for option in options[:6]
+            )
+            if option_preview:
+                lines.append(f"    options: {option_preview[:120]}")
     return "\n".join(lines)
 
 

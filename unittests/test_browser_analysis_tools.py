@@ -176,6 +176,70 @@ def test_get_form_fields_uses_snapshot_for_default_form(monkeypatch):
     assert driver.execute_script_calls == 1
 
 
+def test_get_form_fields_reports_dropdown_metadata_from_snapshot(monkeypatch):
+    browser_analysis_tools.invalidate_page_snapshot_cache()
+    snapshot = sample_snapshot()
+    snapshot["forms"][0]["form_fields"].append(
+        {
+            "name": "country",
+            "tag": "select",
+            "type": "select-one",
+            "required": False,
+            "placeholder": None,
+            "label": "Country",
+            "control_kind": "native-select",
+            "selected_text": "France",
+            "options": [
+                {"text": "France", "value": "fr"},
+                {"text": "Germany", "value": "de"},
+            ],
+        }
+    )
+    driver = DummyDriver(snapshot)
+    monkeypatch.setattr(
+        browser_analysis_tools,
+        "_get_selenium",
+        lambda: DummySelenium(driver),
+    )
+
+    fields = browser_analysis_tools.get_form_fields()
+
+    assert "country (select-one/native-select): Country" in fields
+    assert "selected: France" in fields
+    assert "options: France, Germany" in fields
+
+
+def test_get_interactive_elements_reports_dropdown_kind_and_options(monkeypatch):
+    browser_analysis_tools.invalidate_page_snapshot_cache()
+    snapshot = sample_snapshot()
+    snapshot["interactive_elements"] = [
+        {
+            "tag": "div",
+            "type": None,
+            "locator": "id=status",
+            "text": "Status",
+            "control_kind": "custom-dropdown",
+            "selected_text": "Open",
+            "options": [
+                {"text": "Open", "value": "open"},
+                {"text": "Closed", "value": "closed"},
+            ],
+        }
+    ]
+    driver = DummyDriver(snapshot)
+    monkeypatch.setattr(
+        browser_analysis_tools,
+        "_get_selenium",
+        lambda: DummySelenium(driver),
+    )
+
+    interactive = browser_analysis_tools.get_interactive_elements()
+
+    assert "kind=custom-dropdown" in interactive
+    assert 'selected="Open"' in interactive
+    assert "options=[Open, Closed]" in interactive
+
+
 def test_browser_analysis_tools_fallback_to_minimal_snapshot(monkeypatch):
     browser_analysis_tools.invalidate_page_snapshot_cache()
     driver = FallbackDriver()

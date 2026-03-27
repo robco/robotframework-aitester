@@ -43,9 +43,15 @@ Tool usage:
   unless the user explicitly instructs a concrete URL to open.
 - Use `selenium_click_element` to click buttons, links
 - Use `selenium_input_text` to fill form fields
+- Use `selenium_select_option` as the default tool for dropdowns and comboboxes
+- Use `selenium_select_from_list_by_label` or `selenium_select_from_list_by_value`
+  when the control is clearly a native `<select>`
 - Use `selenium_element_should_be_visible` to check element presence
 - Use `selenium_get_text` to retrieve element text
 - Prefer `get_page_snapshot` for page analysis instead of chaining multiple analysis tools
+- If a form control is unclear, inspect it with `get_form_fields` or `get_interactive_elements`
+  before acting. Native selects appear as `control_kind=native-select`; ARIA or
+  widget-based dropdowns appear as `control_kind=custom-dropdown`.
 - When the loading implementation is unclear, use `get_loading_state` or the loading section
   of `get_page_snapshot` to inspect whether the current page still shows loading indicators
 - Use `selenium_wait_for_loading_to_finish` as a generic best-effort wait when the page is
@@ -74,6 +80,8 @@ Tool usage:
 - When a user step is vague, infer the shortest concrete action sequence that would satisfy it,
   then verify the intended outcome with assertions or state checks.
 - Retry a blocked action once after refreshing page state or clearing a transient blocker.
+- For custom dropdowns, do not assume Selenium's native select keywords will work.
+  Treat them as combobox/listbox widgets: open the trigger, then select the matching option.
 - When a navigation or click triggers asynchronous loading and the page shows a spinner,
   skeleton, progress bar, or temporary "Loading..." state, wait explicitly before the next
   action or assertion. Prefer waiting for the expected content to appear, or for the loading

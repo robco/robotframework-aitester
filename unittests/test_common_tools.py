@@ -208,6 +208,20 @@ def test_track_ui_action_counts_mobile_swipe_and_state_checks():
     assert session.ui_state_checks_total == 2
 
 
+def test_track_ui_action_counts_web_select_option_as_interaction():
+    session = create_session(
+        "test",
+        "app",
+        test_mode="web",
+        high_level_steps=["Select country"],
+    )
+
+    common_tools._track_ui_action(session, "selenium_select_option", StepStatus.PASSED)
+
+    assert session.ui_interactions_total == 1
+    assert session.ui_state_checks_total == 0
+
+
 def test_ensure_screenshot_in_output_dir_reuses_cached_copy(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
