@@ -4,6 +4,7 @@
 """Unit tests for genai module."""
 
 import os
+from types import SimpleNamespace
 from unittest.mock import patch
 from AIAgentic.platforms import Platforms
 from AIAgentic.genai import GenAIProvider
@@ -66,3 +67,24 @@ class TestGenAIProvider:
         )
         assert provider.model_id == "custom-model"
         assert provider.base_url == "https://my-llm.com/v1"
+
+    def test_openai_model_normalizes_none_usage_metadata(self):
+        provider = GenAIProvider(Platforms.OpenAI, api_key="test-key")
+        model = provider.create_model()
+
+        chunk = model.format_chunk(
+            {
+                "chunk_type": "metadata",
+                "data": SimpleNamespace(
+                    prompt_tokens=17,
+                    completion_tokens=None,
+                    total_tokens=None,
+                ),
+            }
+        )
+
+        assert chunk["metadata"]["usage"] == {
+            "inputTokens": 17,
+            "outputTokens": 0,
+            "totalTokens": 17,
+        }

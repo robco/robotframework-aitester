@@ -22,8 +22,8 @@ Reuses the proven pattern from robotframework-aivision but maps to Strands
 model providers instead of direct OpenAI client usage.
 """
 
-import os
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,58 @@ class GenAIProvider:
                 "Install with: pip install 'strands-agents[openai]'"
             )
 
+        class SafeOpenAIModel(OpenAIModel):
+            """OpenAI model wrapper that normalizes missing usage fields.
+
+            Some OpenAI-compatible backends return ``None`` for token usage
+            fields in streaming metadata. Strands later accumulates these
+            counters with ``+=``, which crashes on ``int += None``. Coerce
+            missing or invalid values to ``0`` before passing them on.
+            """
+
+            @staticmethod
+            def _coerce_usage_int(data, *names):
+                for name in names:
+                    if isinstance(data, dict):
+                        value = data.get(name)
+                    else:
+                        value = getattr(data, name, None)
+                    if value is None:
+                        continue
+                    try:
+                        return int(value)
+                    except (TypeError, ValueError):
+                        return 0
+                return 0
+
+            def format_chunk(self, event, **kwargs):
+                if event.get("chunk_type") == "metadata":
+                    usage_data = event.get("data")
+                    input_tokens = self._coerce_usage_int(
+                        usage_data, "prompt_tokens", "inputTokens"
+                    )
+                    output_tokens = self._coerce_usage_int(
+                        usage_data, "completion_tokens", "outputTokens"
+                    )
+                    total_tokens = self._coerce_usage_int(
+                        usage_data, "total_tokens", "totalTokens"
+                    )
+                    if total_tokens == 0 and (input_tokens or output_tokens):
+                        total_tokens = input_tokens + output_tokens
+                    return {
+                        "metadata": {
+                            "usage": {
+                                "inputTokens": input_tokens,
+                                "outputTokens": output_tokens,
+                                "totalTokens": total_tokens,
+                            },
+                            "metrics": {
+                                "latencyMs": 0,
+                            },
+                        },
+                    }
+                return super().format_chunk(event, **kwargs)
+
         client_args = {}
         if self.api_key:
             client_args["api_key"] = self.api_key
@@ -103,7 +155,7 @@ class GenAIProvider:
             self.base_url,
         )
 
-        return OpenAIModel(
+        return SafeOpenAIModel(
             model_id=self.model_id,
             client_args=client_args if client_args else None,
         )
