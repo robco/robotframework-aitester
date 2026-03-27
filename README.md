@@ -365,14 +365,3 @@ ${status}=    Run AI Test
 ...    test_objective=Validate checkout flow
 ...    scroll_into_view=False
 ```
-
-## Author
-
-**Róbert Malovec**
-- Email: robert@malovec.sk
-- GitHub: [@robco](https://github.com/robco)
-- Organization: T-Mobile Czech Republic
-
-## License
-
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
