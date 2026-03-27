@@ -23,6 +23,10 @@ Supply a test area, scenario, or high-level test idea for a target application â
 - Utility tools provide assertions, JSON parsing, timing, RF variable access, and optional AIVision screenshot analysis.
 - RF built-in reporting with embedded screenshots, cached screenshot artifacts, and high-level step grouping when user-defined steps are provided.
 
+## Keywords Documentation
+
+Keywords documentation can be found [here](https://robco.github.io/robotframework-aitester/).
+
 ## Architecture
 
 ```
