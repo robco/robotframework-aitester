@@ -197,7 +197,7 @@ AI Mobile App Test
 |-----------|-----------------------------------|---------------------|-------------------------------|
 | OpenAI    | gpt-4o                            | OpenAI API          | Requires `OPENAI_API_KEY`     |
 | Ollama    | llama3.3                          | Local Ollama        | Free, local inference         |
-| Docker Model | ai/qwen3-vl:8B-Q8_K_XL         | Local Docker Model Runner | Free, local inference   |
+| Docker Model | ai/qwen3-vl:8B-Q8_K_XL         | Local Docker Model Runner | Free, local inference, requires `api_key` to be set to dummy string   |
 | Gemini    | gemini-2.0-flash                  | Google AI           | Requires `GEMINI_API_KEY`     |
 | Anthropic | claude-sonnet-4-5                 | Anthropic API       | Requires `ANTHROPIC_API_KEY`  |
 | Bedrock   | us.anthropic.claude-sonnet-4-5-20251101-v1:0 | AWS Bedrock | Uses AWS credentials       |
