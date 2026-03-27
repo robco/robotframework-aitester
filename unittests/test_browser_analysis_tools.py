@@ -42,6 +42,7 @@ def sample_snapshot():
     return {
         "title": "Example",
         "url": "https://example.test",
+        "document_ready_state": "complete",
         "text": "Hello world",
         "interactive_elements": [
             {"tag": "button", "type": "submit", "locator": "id=submit", "text": "Submit"}
@@ -113,6 +114,7 @@ def sample_snapshot():
                 ],
             }
         ],
+        "loading_indicators": [],
         "browser_errors": [],
     }
 
@@ -132,6 +134,7 @@ def test_browser_analysis_tools_share_cached_snapshot(monkeypatch):
     text = browser_analysis_tools.get_page_text_content()
 
     assert "Page: Example" in snapshot
+    assert "Document readyState: complete" in snapshot
     assert "Frames: 2" in snapshot
     assert "Possible blockers (1)" in snapshot
     assert "Found 1 interactive elements" in interactive
@@ -209,3 +212,33 @@ def test_get_frame_inventory_uses_snapshot_frame_metadata(monkeypatch):
     assert "same-origin" in inventory
     assert "cross-origin or inaccessible" in inventory
     assert driver.execute_script_calls == 1
+
+
+def test_get_loading_state_reports_detected_indicators(monkeypatch):
+    browser_analysis_tools.invalidate_page_snapshot_cache()
+    snapshot = sample_snapshot()
+    snapshot["document_ready_state"] = "interactive"
+    snapshot["loading_indicators"] = [
+        {
+            "kind": "spinner",
+            "locator": "css=.spinner",
+            "role": "progressbar",
+            "text": "Loading profile",
+            "signals": ["role=progressbar", "loading-related id/class/text"],
+        }
+    ]
+    driver = DummyDriver(snapshot)
+    monkeypatch.setattr(
+        browser_analysis_tools,
+        "_get_selenium",
+        lambda: DummySelenium(driver),
+    )
+
+    state = browser_analysis_tools.get_loading_state()
+    page_snapshot = browser_analysis_tools.get_page_snapshot()
+
+    assert "Loading indicators (1) (readyState=interactive):" in state
+    assert "locator=css=.spinner" in state
+    assert 'text="Loading profile"' in state
+    assert "signals=role=progressbar, loading-related id/class/text" in state
+    assert "Loading indicators (1) (readyState=interactive):" in page_snapshot

@@ -8,10 +8,12 @@ These tools provide the AI agent with full browser automation capabilities
 via SeleniumLibrary's battle-tested Selenium/WebDriver integration.
 """
 
+import time
 import logging
 from urllib.parse import urlsplit, urlunsplit
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
+from robot.utils.robottime import timestr_to_secs
 
 from .common_tools import instrument_tool_list, _normalize_screenshot_filename
 from .browser_analysis_tools import (
@@ -170,6 +172,39 @@ def _assert_browser_termination_allowed(action_name: str, sl=None) -> None:
         "environment. Close or restart the browser only when the user "
         "explicitly requests it."
     )
+
+
+def _parse_time_value(value, label: str) -> float:
+    try:
+        if isinstance(value, (int, float)):
+            seconds = float(value)
+        else:
+            seconds = float(timestr_to_secs(str(value)))
+    except Exception as exc:
+        raise AssertionError(
+            f"{label} must be a positive duration such as '10s' or '500ms', got '{value}'."
+        ) from exc
+    if seconds <= 0:
+        raise AssertionError(f"{label} must be greater than 0, got '{value}'.")
+    return seconds
+
+
+def _summarize_loading_state(snapshot: dict) -> str:
+    ready_state = str(snapshot.get("document_ready_state", "unknown")).lower()
+    indicators = snapshot.get("loading_indicators") or []
+    if not indicators:
+        return f"readyState={ready_state}, indicators=none"
+    parts = []
+    for indicator in indicators[:3]:
+        detail = indicator.get("kind", "loading")
+        locator = indicator.get("locator")
+        text = indicator.get("text")
+        if locator:
+            detail += f" locator={locator}"
+        elif text:
+            detail += f' text="{text[:40]}"'
+        parts.append(detail)
+    return f"readyState={ready_state}, indicators=" + "; ".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -833,6 +868,121 @@ def selenium_wait_until_page_contains_element(locator: str, timeout: str = "10s"
     return f"Page now contains element: {locator}"
 
 
+@tool
+def selenium_wait_until_element_is_not_visible(locator: str, timeout: str = "10s") -> str:
+    """Waits until an element is no longer visible on the page.
+
+    Args:
+        locator: Element locator to wait on.
+        timeout: Maximum time to wait (e.g., '10s', '30s').
+
+    Returns:
+        Confirmation when the element is no longer visible.
+    """
+    sl = _get_selenium()
+    sl.wait_until_element_is_not_visible(locator, timeout)
+    return f"Element is no longer visible: {locator}"
+
+
+@tool
+def selenium_wait_until_page_does_not_contain(text: str, timeout: str = "10s") -> str:
+    """Waits until the page no longer contains the specified text.
+
+    Args:
+        text: Text that should disappear.
+        timeout: Maximum time to wait.
+
+    Returns:
+        Confirmation when the text is no longer present.
+    """
+    sl = _get_selenium()
+    sl.wait_until_page_does_not_contain(text, timeout)
+    return f"Page no longer contains: '{text}'"
+
+
+@tool
+def selenium_wait_until_page_does_not_contain_element(
+    locator: str, timeout: str = "10s"
+) -> str:
+    """Waits until the page no longer contains the specified element.
+
+    Args:
+        locator: Element locator to wait on.
+        timeout: Maximum time to wait.
+
+    Returns:
+        Confirmation when the element is gone.
+    """
+    sl = _get_selenium()
+    sl.wait_until_page_does_not_contain_element(locator, timeout)
+    return f"Page no longer contains element: {locator}"
+
+
+@tool
+def selenium_wait_for_loading_to_finish(
+    timeout: str = "10s",
+    poll_interval: str = "500ms",
+    stable_polls: int = 2,
+) -> str:
+    """Waits until auto-detected page loading indicators stop appearing.
+
+    This is a best-effort helper for pages where the loading implementation
+    is unknown. It polls fresh page snapshots and succeeds only after the
+    page shows no loading indicators for a number of consecutive checks.
+
+    Args:
+        timeout: Maximum total wait time.
+        poll_interval: Delay between snapshot polls.
+        stable_polls: Number of consecutive clean polls required.
+
+    Returns:
+        Confirmation when the page appears stable.
+    """
+    if stable_polls < 1:
+        raise AssertionError(f"stable_polls must be at least 1, got '{stable_polls}'.")
+
+    timeout_seconds = _parse_time_value(timeout, "timeout")
+    poll_seconds = _parse_time_value(poll_interval, "poll_interval")
+    deadline = time.monotonic() + timeout_seconds
+    clean_polls = 0
+    checks = 0
+    observed_loading = False
+    last_snapshot = {
+        "document_ready_state": "unknown",
+        "loading_indicators": [],
+    }
+
+    while True:
+        snapshot = _get_page_snapshot_data(force_refresh=True)
+        checks += 1
+        last_snapshot = snapshot
+        ready_state = str(snapshot.get("document_ready_state", "unknown")).lower()
+        indicators = snapshot.get("loading_indicators") or []
+        is_loading = ready_state == "loading" or bool(indicators)
+
+        if is_loading:
+            observed_loading = True
+            clean_polls = 0
+        else:
+            clean_polls += 1
+            if clean_polls >= stable_polls:
+                return (
+                    "Page appears stable: no loading indicators detected for "
+                    f"{stable_polls} consecutive checks "
+                    f"({_summarize_loading_state(snapshot)}, checks={checks}, "
+                    f"observed_loading={'yes' if observed_loading else 'no'})."
+                )
+
+        now = time.monotonic()
+        if now >= deadline:
+            raise AssertionError(
+                "Loading did not finish within "
+                f"{timeout}. Last observed state: {_summarize_loading_state(last_snapshot)}."
+            )
+
+        time.sleep(min(poll_seconds, deadline - now))
+
+
 # ---------------------------------------------------------------------------
 # Screenshots
 # ---------------------------------------------------------------------------
@@ -968,6 +1118,10 @@ WEB_TOOLS = instrument_tool_list([
     selenium_wait_until_element_is_enabled,
     selenium_wait_until_page_contains,
     selenium_wait_until_page_contains_element,
+    selenium_wait_until_element_is_not_visible,
+    selenium_wait_until_page_does_not_contain,
+    selenium_wait_until_page_does_not_contain_element,
+    selenium_wait_for_loading_to_finish,
     selenium_capture_page_screenshot,
     selenium_execute_javascript,
     selenium_switch_window,

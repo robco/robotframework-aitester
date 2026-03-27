@@ -236,6 +236,101 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         return headings;
     }
 
+    function classifyLoadingIndicator(element) {
+        if (!element || !isVisible(element)) return null;
+        const role = (element.getAttribute('role') || '').toLowerCase();
+        const ariaBusy = (element.getAttribute('aria-busy') || '').toLowerCase();
+        const text = safeText(
+            element.innerText || element.textContent || element.getAttribute('aria-label') || '',
+            120
+        );
+        const textLower = text.toLowerCase();
+        const context = [
+            element.id || '',
+            element.className || '',
+            role,
+            element.getAttribute('aria-label') || '',
+            element.getAttribute('data-testid') || '',
+            element.getAttribute('name') || '',
+            text,
+        ].join(' ').toLowerCase();
+        const tag = element.tagName.toLowerCase();
+        const signals = [];
+
+        if (ariaBusy === 'true') signals.push('aria-busy=true');
+        if (role === 'progressbar') signals.push('role=progressbar');
+        if (tag === 'progress') signals.push('<progress>');
+        if (/(spinner|loading|loader|busy|progress|pending|skeleton|shimmer)/.test(context)) {
+            signals.push('loading-related id/class/text');
+        }
+        if (/(loading|please wait|fetching|processing|saving|submitting|syncing|initializing|loading more)/.test(textLower)) {
+            signals.push('loading text');
+        }
+
+        if (!signals.length) return null;
+
+        let kind = 'loading';
+        if (/skeleton|shimmer/.test(context)) {
+            kind = 'skeleton';
+        } else if (role === 'progressbar' || tag === 'progress' || /progress/.test(context)) {
+            kind = 'progress';
+        } else if (/spinner|loader/.test(context)) {
+            kind = 'spinner';
+        }
+
+        return {
+            kind: kind,
+            locator: getLocator(element),
+            tag: tag,
+            role: role || null,
+            id: element.id || null,
+            class: element.className ? String(element.className).substring(0, 120) : null,
+            text: text || null,
+            signals: signals,
+        };
+    }
+
+    function collectLoadingIndicators(doc, limit) {
+        const indicators = [];
+        const seen = new Set();
+        const candidateSelectors = [
+            '[aria-busy="true"]',
+            '[role="progressbar"]',
+            'progress',
+            '[id*="loading"]',
+            '[class*="loading"]',
+            '[id*="loader"]',
+            '[class*="loader"]',
+            '[id*="spinner"]',
+            '[class*="spinner"]',
+            '[id*="progress"]',
+            '[class*="progress"]',
+            '[id*="busy"]',
+            '[class*="busy"]',
+            '[id*="skeleton"]',
+            '[class*="skeleton"]',
+            '[id*="shimmer"]',
+            '[class*="shimmer"]',
+            '[aria-label]',
+            '[data-testid]',
+        ];
+
+        doc.querySelectorAll(candidateSelectors.join(', ')).forEach(element => {
+            if (indicators.length >= limit || seen.has(element)) return;
+            seen.add(element);
+            const indicator = classifyLoadingIndicator(element);
+            if (!indicator) return;
+            indicators.push(indicator);
+        });
+
+        indicators.sort((a, b) => {
+            const aScore = (a.signals || []).length + (a.kind === 'spinner' ? 1 : 0);
+            const bScore = (b.signals || []).length + (b.kind === 'spinner' ? 1 : 0);
+            return bScore - aScore;
+        });
+        return indicators.slice(0, limit);
+    }
+
     function countInteractiveElements(doc, limit) {
         const seen = new Set();
         let count = 0;
@@ -352,6 +447,7 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
     const snapshot = {
         title: document.title || 'Untitled',
         url: window.location.href,
+        document_ready_state: document.readyState || 'unknown',
         text: document.body ? document.body.innerText.substring(0, 5000) : '',
         interactive_elements: [],
         headings: [],
@@ -361,6 +457,7 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         links: [],
         frames: [],
         possible_blockers: [],
+        loading_indicators: [],
         browser_errors: [],
     };
 
@@ -487,6 +584,8 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         });
     });
 
+    snapshot.loading_indicators = collectLoadingIndicators(document, 12);
+
     return snapshot;
     """
     try:
@@ -503,6 +602,7 @@ def _empty_page_snapshot() -> Dict[str, Any]:
     return {
         "title": "Untitled",
         "url": "unknown",
+        "document_ready_state": "unknown",
         "text": "",
         "interactive_elements": [],
         "headings": [],
@@ -512,6 +612,7 @@ def _empty_page_snapshot() -> Dict[str, Any]:
         "links": [],
         "frames": [],
         "possible_blockers": [],
+        "loading_indicators": [],
         "browser_errors": [],
     }
 
@@ -610,6 +711,30 @@ def _format_possible_blockers(blockers) -> list[str]:
     return lines
 
 
+def _format_loading_indicators(snapshot: Dict[str, Any]) -> list[str]:
+    ready_state = snapshot.get("document_ready_state", "unknown")
+    indicators = snapshot.get("loading_indicators", [])
+    if not indicators:
+        return [f"Loading indicators: none detected (readyState={ready_state})"]
+    lines = [f"Loading indicators ({len(indicators)}) (readyState={ready_state}):"]
+    for indicator in indicators[:5]:
+        details = [indicator.get("kind", "loading")]
+        locator = indicator.get("locator")
+        if locator:
+            details.append(f"locator={locator}")
+        role = indicator.get("role")
+        if role:
+            details.append(f"role={role}")
+        text = indicator.get("text")
+        if text:
+            details.append(f'text="{text[:60]}"')
+        signals = indicator.get("signals") or []
+        if signals:
+            details.append("signals=" + ", ".join(signals[:3]))
+        lines.append("  - " + ", ".join(details))
+    return lines
+
+
 def _format_frames(frames) -> list[str]:
     if not frames:
         return ["Frames: none detected"]
@@ -684,6 +809,7 @@ def get_page_snapshot(refresh: bool = False) -> str:
     lines = [
         f"Page: {snapshot.get('title', 'Untitled')}",
         f"URL: {snapshot.get('url', 'unknown')}",
+        f"Document readyState: {snapshot.get('document_ready_state', 'unknown')}",
         f"Interactive elements: {len(snapshot.get('interactive_elements', []))}",
         f"Forms: {len(snapshot.get('forms', []))}",
         f"Links: {len(snapshot.get('links', []))}",
@@ -703,8 +829,17 @@ def get_page_snapshot(refresh: bool = False) -> str:
     lines.append("")
     lines.extend(_format_frames(snapshot.get("frames", [])[:5]))
     lines.append("")
+    lines.extend(_format_loading_indicators(snapshot))
+    lines.append("")
     lines.extend(_format_possible_blockers(snapshot.get("possible_blockers", [])))
     return "\n".join(lines)
+
+
+@tool
+def get_loading_state(refresh: bool = False) -> str:
+    """Gets automatically detected loading indicators from the current page."""
+    snapshot = _get_page_snapshot_data(force_refresh=bool(refresh))
+    return "\n".join(_format_loading_indicators(snapshot))
 
 
 @tool
@@ -873,6 +1008,7 @@ def check_page_errors() -> str:
 
 BROWSER_ANALYSIS_TOOLS = instrument_tool_list([
     get_page_snapshot,
+    get_loading_state,
     get_interactive_elements,
     get_page_structure,
     get_page_text_content,

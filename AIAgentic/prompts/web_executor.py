@@ -46,6 +46,10 @@ Tool usage:
 - Use `selenium_element_should_be_visible` to check element presence
 - Use `selenium_get_text` to retrieve element text
 - Prefer `get_page_snapshot` for page analysis instead of chaining multiple analysis tools
+- When the loading implementation is unclear, use `get_loading_state` or the loading section
+  of `get_page_snapshot` to inspect whether the current page still shows loading indicators
+- Use `selenium_wait_for_loading_to_finish` as a generic best-effort wait when the page is
+  still transitioning but the specific spinner or loading locator is unknown
 - When the page contains multiple iframes, use `get_frame_inventory` or the frame section of
   `get_page_snapshot` to identify the likely target frame before interacting
 - If the target controls are inside an iframe, switch with `selenium_select_frame`,
@@ -70,6 +74,11 @@ Tool usage:
 - When a user step is vague, infer the shortest concrete action sequence that would satisfy it,
   then verify the intended outcome with assertions or state checks.
 - Retry a blocked action once after refreshing page state or clearing a transient blocker.
+- When a navigation or click triggers asynchronous loading and the page shows a spinner,
+  skeleton, progress bar, or temporary "Loading..." state, wait explicitly before the next
+  action or assertion. Prefer waiting for the expected content to appear, or for the loading
+  indicator/text to disappear. Increase the timeout when the page is known to be slow instead
+  of guessing with blind retries.
 - If page-analysis tools fail, keep the browser open, switch to other non-destructive
   checks when possible, and report the failure instead of restarting the browser.
 - Step recording is automatic. Do NOT call `record_step` unless explicitly asked.

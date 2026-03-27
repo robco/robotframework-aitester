@@ -15,6 +15,9 @@ class DummySelenium:
         self.opened = []
         self.closed = 0
         self.closed_all = 0
+        self.waited_not_visible = []
+        self.waited_text_gone = []
+        self.waited_element_gone = []
 
     def click_element(self, locator):
         self.clicked.append(locator)
@@ -33,6 +36,26 @@ class DummySelenium:
 
     def close_all_browsers(self):
         self.closed_all += 1
+
+    def wait_until_element_is_not_visible(self, locator, timeout):
+        self.waited_not_visible.append((locator, timeout))
+
+    def wait_until_page_does_not_contain(self, text, timeout):
+        self.waited_text_gone.append((text, timeout))
+
+    def wait_until_page_does_not_contain_element(self, locator, timeout):
+        self.waited_element_gone.append((locator, timeout))
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
 
 
 def test_selenium_handle_common_blockers_clicks_detected_action(monkeypatch):
@@ -320,3 +343,96 @@ def test_selenium_close_browser_allows_explicit_user_requested_restart(monkeypat
         assert dummy.closed == 1
     finally:
         set_active_session(None)
+
+
+def test_selenium_wait_until_element_is_not_visible(monkeypatch):
+    dummy = DummySelenium()
+    monkeypatch.setattr(web_tools, "_get_selenium", lambda: dummy)
+
+    result = web_tools.selenium_wait_until_element_is_not_visible("css=.spinner", "30s")
+
+    assert result == "Element is no longer visible: css=.spinner"
+    assert dummy.waited_not_visible == [("css=.spinner", "30s")]
+
+
+def test_selenium_wait_until_page_does_not_contain(monkeypatch):
+    dummy = DummySelenium()
+    monkeypatch.setattr(web_tools, "_get_selenium", lambda: dummy)
+
+    result = web_tools.selenium_wait_until_page_does_not_contain("Loading...", "20s")
+
+    assert result == "Page no longer contains: 'Loading...'"
+    assert dummy.waited_text_gone == [("Loading...", "20s")]
+
+
+def test_selenium_wait_until_page_does_not_contain_element(monkeypatch):
+    dummy = DummySelenium()
+    monkeypatch.setattr(web_tools, "_get_selenium", lambda: dummy)
+
+    result = web_tools.selenium_wait_until_page_does_not_contain_element(
+        "css=.loading-overlay", "45s"
+    )
+
+    assert result == "Page no longer contains element: css=.loading-overlay"
+    assert dummy.waited_element_gone == [("css=.loading-overlay", "45s")]
+
+
+def test_selenium_wait_for_loading_to_finish_after_indicators_disappear(monkeypatch):
+    states = [
+        {
+            "document_ready_state": "loading",
+            "loading_indicators": [{"kind": "spinner", "locator": "css=.spinner"}],
+        },
+        {
+            "document_ready_state": "complete",
+            "loading_indicators": [{"kind": "spinner", "locator": "css=.spinner"}],
+        },
+        {
+            "document_ready_state": "complete",
+            "loading_indicators": [],
+        },
+        {
+            "document_ready_state": "complete",
+            "loading_indicators": [],
+        },
+    ]
+    calls = []
+    clock = FakeClock()
+
+    def fake_snapshot(force_refresh=False):
+        calls.append(force_refresh)
+        index = min(len(calls) - 1, len(states) - 1)
+        return states[index]
+
+    monkeypatch.setattr(web_tools, "_get_page_snapshot_data", fake_snapshot)
+    monkeypatch.setattr(web_tools.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(web_tools.time, "sleep", clock.sleep)
+
+    result = web_tools.selenium_wait_for_loading_to_finish(
+        timeout="5s", poll_interval="200ms", stable_polls=2
+    )
+
+    assert "Page appears stable" in result
+    assert "observed_loading=yes" in result
+    assert "readyState=complete, indicators=none" in result
+    assert calls == [True, True, True, True]
+
+
+def test_selenium_wait_for_loading_to_finish_times_out_with_last_detected_state(monkeypatch):
+    clock = FakeClock()
+
+    monkeypatch.setattr(
+        web_tools,
+        "_get_page_snapshot_data",
+        lambda force_refresh=False: {
+            "document_ready_state": "loading",
+            "loading_indicators": [{"kind": "spinner", "locator": "css=.spinner"}],
+        },
+    )
+    monkeypatch.setattr(web_tools.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(web_tools.time, "sleep", clock.sleep)
+
+    with pytest.raises(AssertionError, match="Loading did not finish within 500ms"):
+        web_tools.selenium_wait_for_loading_to_finish(
+            timeout="500ms", poll_interval="200ms", stable_polls=2
+        )

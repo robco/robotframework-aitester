@@ -328,11 +328,19 @@ For web sessions, AIAgentic now prefers a shared cached page snapshot instead of
 running multiple overlapping DOM scans on every analysis step.
 
 - `get_page_snapshot` captures title, URL, text preview, forms, links, headings, interactive elements, and possible blocking overlays in one pass
+- `get_loading_state` and the loading section of `get_page_snapshot` use DOM/accessibility heuristics to surface visible loading indicators such as `aria-busy` regions, progress bars, loaders/spinners, and skeleton/shimmer placeholders
 - `get_interactive_elements`, `get_page_structure`, `get_page_text_content`, `get_all_links`, `get_frame_inventory`, and `get_form_fields` reuse that cached snapshot where possible
 - iframe-heavy pages are now better supported: the snapshot includes iframe/frame inventory, and `get_frame_inventory` summarizes candidate frame locators, titles, URLs, and same-origin previews so the agent can switch into the right frame before interacting
 - Successful mutating Selenium actions invalidate the cache so later analysis reflects the latest page state
 - `selenium_handle_common_blockers` uses that snapshot to clear common blockers such as cookie banners, consent popups, newsletter modals, and tutorial overlays before retrying the intended action
 - When a cookie or consent banner is detected during a web run, AIAgentic prefers accept/allow actions so the banner disappears unless the user explicitly requested a different choice
+- For slow pages with loading spinners or skeleton screens, prefer condition-based waits such as
+  `selenium_wait_until_page_contains`, `selenium_wait_until_page_contains_element`,
+  `selenium_wait_until_element_is_not_visible`, `selenium_wait_until_page_does_not_contain`,
+  and `selenium_wait_until_page_does_not_contain_element` instead of fixed delays
+- When the concrete loading implementation is unknown, `selenium_wait_for_loading_to_finish`
+  polls fresh page snapshots and waits for consecutive clean checks with no detected loading
+  indicators; treat it as a best-effort readiness heuristic, not a guarantee of network idle
 
 ## Mobile State Analysis
 
