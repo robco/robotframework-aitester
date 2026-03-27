@@ -11,7 +11,7 @@ class TestPlatforms:
 
     def test_all_platforms_defined(self):
         """Verify all expected platforms are defined."""
-        expected = {"Ollama", "OpenAI", "Gemini", "Anthropic", "Bedrock", "Manual"}
+        expected = {"Ollama", "DockerModel", "OpenAI", "Gemini", "Anthropic", "Bedrock", "Manual"}
         actual = {p.name for p in Platforms}
         assert actual == expected
 
@@ -45,6 +45,14 @@ class TestPlatforms:
         assert "localhost" in config["default_base_url"]
         assert config["api_key_env"] is None
         assert config["strands_provider"] == "ollama"
+
+    def test_dockermodel_defaults(self):
+        """Docker Model platform should have correct defaults."""
+        config = Platforms.DockerModel.value
+        assert config["default_model"] == "ai/qwen3-vl:8B-Q8_K_XL"
+        assert "localhost" in config["default_base_url"]
+        assert config["api_key_env"] is None
+        assert config["strands_provider"] == "openai"
 
     def test_anthropic_defaults(self):
         """Anthropic platform should have correct defaults."""
