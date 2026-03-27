@@ -1216,7 +1216,10 @@ def get_form_fields(form_locator: str = "css=form") -> str:
                 role: role || null,
                 control_kind: controlKind,
                 selected_text: tag === 'select'
-                    ? Array.from(el.selectedOptions || []).map(option => getElementText(option, 80)).filter(Boolean).join(', ') || null
+                    ? Array.from(el.selectedOptions || [])
+                        .map(option => getElementText(option, 80))
+                        .filter(Boolean)
+                        .join(', ') || null
                     : null,
                 options: collectOptions(el, 12),
             }});
