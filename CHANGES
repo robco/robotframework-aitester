@@ -1,9 +1,10 @@
+0.10.0, 2026-03-27  -- Docker Model Runner added to supported AI platforms
 0.9.0,  2026-03-27  -- Library renamed to AITester
-0.8.0,  2026-03-27  -- iFrames robust support added.
-0.7.0,  2026-03-24  -- Cookie banners handling updates.
+0.8.0,  2026-03-27  -- iFrames robust support added
+0.7.0,  2026-03-24  -- Cookie banners handling updates
 0.6.0,  2026-03-24  -- Test steps processing updates
-0.5.0,  2026-03-24  -- Execution flow AI grounding updates, including mobile parity and guardrail alignment with web.
-0.4.0,  2026-03-23  -- Orchestrator and AI usage optimizations.
-0.3.0,  2026-03-17  -- Executor flow updates.
-0.2.0,  2026-03-16  -- Existing test session detection and reuse added.
+0.5.0,  2026-03-24  -- Execution flow AI grounding updates, including mobile parity and guardrail alignment with web
+0.4.0,  2026-03-23  -- Orchestrator and AI usage optimizations
+0.3.0,  2026-03-17  -- Executor flow updates
+0.2.0,  2026-03-16  -- Existing test session detection and reuse added
 0.1.0,  2026-03-15  -- Initial release — Phase 1: Core Architecture + Web Testing + API Testing
