@@ -65,7 +65,7 @@ class AITester:
     - api: REST API testing (requires RequestsLibrary)
     - mobile: Appium-based mobile testing (requires AppiumLibrary)
 
-    Supported AI platforms: OpenAI, Ollama, Gemini, Anthropic, Bedrock
+    Supported AI platforms: OpenAI, Ollama, Docker Model, Gemini, Anthropic, Bedrock
 
     Examples:
     | Library | AITester | platform=OpenAI | api_key=%{OPENAI_API_KEY} | model=gpt-4o |
