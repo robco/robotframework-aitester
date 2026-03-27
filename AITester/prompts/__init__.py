@@ -15,7 +15,7 @@
 # limitations under the License.
 
 """
-System prompt templates for robotframework-aiagentic agents.
+System prompt templates for robotframework-aitester agents.
 
 Each module defines the system prompt for one specialist agent:
 - supervisor: Orchestrates specialist agents

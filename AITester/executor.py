@@ -15,7 +15,7 @@
 # limitations under the License.
 
 """
-Test execution engine and state management for robotframework-aiagentic.
+Test execution engine and state management for robotframework-aitester.
 
 Manages the lifecycle of an agentic test session, including state tracking,
 evidence collection, error handling, and iteration management.

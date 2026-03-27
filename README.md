@@ -1,13 +1,13 @@
-[![Python Package CI](https://github.com/robco/robotframework-aiagentic/actions/workflows/python-package.yml/badge.svg)](https://github.com/robco/robotframework-aiagentic/actions/workflows/python-package.yml)
+[![Python Package CI](https://github.com/robco/robotframework-aitester/actions/workflows/python-package.yml/badge.svg)](https://github.com/robco/robotframework-aitester/actions/workflows/python-package.yml)
 
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/robco)
-# Fully Autonomous AI Agentic Testing for Robot Framework
+# Fully Autonomous AI Testing for Robot Framework
 
 [![Robot Framework](https://img.shields.io/badge/Robot%20Framework-7.0%2B-brightgreen)](https://robotframework.org)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
-`robotframework-aiagentic` is a Robot Framework library that enables fully autonomous, AI-driven test automation. By combining the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) with multi-provider GenAI model access and native RF library integration, this module allows testers to specify **what to test** rather than **how to test it**.
+`robotframework-aitester` is a Robot Framework library that enables fully autonomous, AI-driven test automation. By combining the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) with multi-provider GenAI model access and native RF library integration, this module allows testers to specify **what to test** rather than **how to test it**.
 
 Supply a test area, scenario, or high-level test idea for a target application — web, mobile, or API — and the AI agent autonomously designs or reuses a plan, executes test steps, adapts around common transient blockers, captures evidence, and logs results into Robot Framework's built-in `log.html` / `report.html`.
 
@@ -16,7 +16,7 @@ Supply a test area, scenario, or high-level test idea for a target application �
 - Direct single-mode execution uses a fast path: `Planner -> Web/API/Mobile Executor`, while user-defined numbered `test_steps` skip planning and run straight in the target executor.
 - Numbered steps embedded directly in the objective are also detected and treated as the main flow, even if `test_steps` is not passed separately.
 - Supervisor orchestration remains available internally as a fallback path for unsupported or custom execution flows.
-- Instrumented tool bridge records step status, duration, assertion details, and screenshot references, surfacing them in RF logs via the `Agentic Step` keyword.
+- Instrumented tool bridge records step status, duration, assertion details, and screenshot references, surfacing them in RF logs via the `AI Step` keyword.
 - Browser analysis tools share a cached `get_page_snapshot` view and derive interactive elements, page structure, form fields, links, text content, and console errors from that shared page state.
 - Mobile analysis tools now reuse a cached Appium source snapshot across screen-summary and source-inspection calls until the UI changes.
 - Web and mobile executors can add minimal recovery actions when the requested flow is blocked by cookie banners, consent modals, permission dialogs, tutorials, or similar transient UI interruptions. For web runs, cookie/consent banners are accepted by default unless the user explicitly says otherwise.
@@ -28,7 +28,7 @@ Supply a test area, scenario, or high-level test idea for a target application �
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │  Layer 1: RF Keyword Layer                                     │
-│  .robot files → AIAgentic keywords (Run Agentic Test, etc.)    │
+│  .robot files → AITester keywords (Run AI Test, etc.)          │
 ├────────────────────────────────────────────────────────────────┤
 │  Layer 2: Agent Orchestration Layer                            │
 │  Direct Planner/Executor fast path or Supervisor fallback      │
@@ -66,25 +66,25 @@ In practice, most web, API, mobile, and exploratory runs now use the direct exec
 
 ```bash
 # Base installation
-pip install robotframework-aiagentic
+pip install robotframework-aitester
 
 # With web testing support
-pip install robotframework-aiagentic[web]
+pip install robotframework-aitester[web]
 
 # With all testing modes and OpenAI
-pip install robotframework-aiagentic[all,openai]
+pip install robotframework-aitester[all,openai]
 
 # With Bedrock support
-pip install robotframework-aiagentic[all,bedrock]
+pip install robotframework-aitester[all,bedrock]
 
 # With Anthropic support
-pip install robotframework-aiagentic[all,anthropic]
+pip install robotframework-aitester[all,anthropic]
 
 # With Ollama (local models)
-pip install robotframework-aiagentic[all,ollama]
+pip install robotframework-aitester[all,ollama]
 
 # Development
-pip install robotframework-aiagentic[all,openai,dev]
+pip install robotframework-aitester[all,openai,dev]
 ```
 
 ## Quick Start
@@ -94,10 +94,10 @@ pip install robotframework-aiagentic[all,openai,dev]
 ```robot
 *** Settings ***
 Library    SeleniumLibrary
-Library    AIAgentic    platform=OpenAI    api_key=%{OPENAI_API_KEY}    model=gpt-4o
+Library    AITester    platform=OpenAI    api_key=%{OPENAI_API_KEY}    model=gpt-4o
 
 *** Test Cases ***
-Agentic Login Flow Test
+AI Login Flow Test
     [Documentation]    AI agent autonomously tests the login functionality
     Open Browser    https://myapp.example.com    chrome
     ${TEST_STEPS}=    Set Variable
@@ -105,7 +105,7 @@ Agentic Login Flow Test
     ...    1. Open the login page
     ...    2. Attempt login with valid credentials and verify success
     ...    3. Attempt login with invalid credentials and verify error message
-    ${status}=    Run Agentic Test
+    ${status}=    Run AI Test
     ...    test_objective=Test the login functionality including valid credentials,
     ...        invalid credentials, empty fields, and password recovery flow
     ...    app_context=E-commerce web application with email/password login
@@ -114,10 +114,10 @@ Agentic Login Flow Test
     Log    ${status}
     [Teardown]    Close All Browsers
 
-Agentic Exploratory Testing
+AI Exploratory Testing
     [Documentation]    AI agent freely explores and tests the application
     Open Browser    https://myapp.example.com    chrome
-    ${status}=    Run Agentic Exploration
+    ${status}=    Run AI Exploration
     ...    app_context=E-commerce platform with product catalog, shopping cart and checkout
     ...    focus_areas=navigation, search, product filtering, cart operations
     ...    max_iterations=100
@@ -126,7 +126,7 @@ Agentic Exploratory Testing
 ```
 
 The browser opened by `Open Browser` is reused by the agent. If a session is
-already active, AIAgentic will reuse it and refuse to open a new one.
+already active, AITester will reuse it and refuse to open a new one.
 
 When numbered `test_steps` are supplied, those steps are treated as the main flow
 and executed directly in order without a separate planning handoff.
@@ -141,10 +141,10 @@ as long as the requested business flow stays intact.
 ```robot
 *** Settings ***
 Library    RequestsLibrary
-Library    AIAgentic    platform=Ollama    model=llama3.3
+Library    AITester    platform=Ollama    model=llama3.3
 
 *** Test Cases ***
-Agentic REST API Test
+AI REST API Test
     Create Session    api    https://api.example.com
     ${TEST_STEPS}=    Set Variable
     ...    Test Steps:
@@ -152,7 +152,7 @@ Agentic REST API Test
     ...    2. Fetch the user via GET /users/{id}
     ...    3. Update the user via PUT /users/{id}
     ...    4. Delete the user via DELETE /users/{id}
-    ${status}=    Run Agentic API Test
+    ${status}=    Run AI API Test
     ...    test_objective=Test the user management API endpoints including
     ...        CRUD operations, authentication, error handling, and edge cases
     ...    base_url=https://api.example.com
@@ -167,10 +167,10 @@ Agentic REST API Test
 ```robot
 *** Settings ***
 Library    AppiumLibrary
-Library    AIAgentic    platform=Gemini    api_key=%{GEMINI_API_KEY}
+Library    AITester    platform=Gemini    api_key=%{GEMINI_API_KEY}
 
 *** Test Cases ***
-Agentic Mobile App Test
+AI Mobile App Test
     Open Application    http://localhost:4723/wd/hub
     ...    platformName=Android    app=com.example.app
     ${TEST_STEPS}=    Set Variable
@@ -178,7 +178,7 @@ Agentic Mobile App Test
     ...    1. Complete the onboarding flow
     ...    2. Navigate to the main dashboard
     ...    3. Open settings and verify key options
-    ${status}=    Run Agentic Mobile Test
+    ${status}=    Run AI Mobile Test
     ...    test_objective=Test the onboarding flow, main navigation and settings screen
     ...    app_context=Android banking application
     ...    test_steps=${TEST_STEPS}
@@ -213,7 +213,7 @@ Agentic Mobile App Test
 
 ```robot
 *** Settings ***
-Library    AIAgentic
+Library    AITester
 ...    platform=${AI_PLATFORM}
 ...    model=${AI_MODEL}
 ...    api_key=${AI_API_KEY}
@@ -243,31 +243,31 @@ Library    AIAgentic
 | `max_cost_usd`        | None       | Configures `SafetyGuard` cost-limit metadata  |
 
 If you import SeleniumLibrary/RequestsLibrary/AppiumLibrary with an alias,
-pass the corresponding `*_library` parameter so agentic tools attach to the
+pass the corresponding `*_library` parameter so AI tools attach to the
 already-opened session.
 
-Important: AIAgentic can only drive sessions created by SeleniumLibrary/AppiumLibrary.
+Important: AITester can only drive sessions created by SeleniumLibrary/AppiumLibrary.
 If you open a browser/app manually or through another tool, the agent will not
 be able to interact with it.
 
 ### Session Reuse (No New Browsers/Apps)
 
-If an active Selenium or Appium session is detected, AIAgentic **reuses it**
+If an active Selenium or Appium session is detected, AITester **reuses it**
 and **refuses to open a new session on a different device**. This prevents
 cases like opening a desktop browser when an Android Appium browser is already
-running. Make sure the existing session is open before calling `Run Agentic*`,
+running. Make sure the existing session is open before calling `Run AI*`,
 and set `selenium_library` / `appium_library` if you imported those libraries
 with aliases.
 
 ```robot
 *** Settings ***
 Library    SeleniumLibrary    WITH NAME    Web
-Library    AIAgentic    platform=OpenAI    selenium_library=Web
+Library    AITester    platform=OpenAI    selenium_library=Web
 
 *** Test Cases ***
 Reuse Existing Web Session
     Open Browser    https://example.com    chrome
-    ${status}=    Run Agentic Test
+    ${status}=    Run AI Test
     ...    test_objective=Smoke test the landing page
     Log    ${status}
 ```
@@ -276,13 +276,13 @@ Reuse Existing Web Session
 
 | Keyword                     | Description                                       |
 |----------------------------|----------------------------------------------------|
-| `Run Agentic Test`         | Execute an autonomous test from a test objective (supports `test_steps`, `scroll_into_view`) |
-| `Run Agentic Exploration`  | Run exploratory testing with focus areas (supports `scroll_into_view`) |
-| `Run Agentic API Test`     | Execute autonomous REST API testing (supports `test_steps`, `scroll_into_view`) |
-| `Run Agentic Mobile Test`  | Execute autonomous mobile app testing (supports `test_steps`, `scroll_into_view`) |
-| `Get Agentic Platform Info`| Return configured platform information             |
-| `Agentic Step`             | Step-level logging keyword used by the agent tools |
-| `Agentic High Level Step`  | High-level step marker used for RF log grouping    |
+| `Run AI Test`              | Execute an autonomous test from a test objective (supports `test_steps`, `scroll_into_view`) |
+| `Run AI Exploration`       | Run exploratory testing with focus areas (supports `scroll_into_view`) |
+| `Run AI API Test`          | Execute autonomous REST API testing (supports `test_steps`, `scroll_into_view`) |
+| `Run AI Mobile Test`       | Execute autonomous mobile app testing (supports `test_steps`, `scroll_into_view`) |
+| `Get AI Platform Info`     | Return configured platform information             |
+| `AI Step`                  | Step-level logging keyword used by the agent tools |
+| `AI High Level Step`       | High-level step marker used for RF log grouping    |
 
 ## Safety & Guardrails
 
@@ -294,48 +294,57 @@ Reuse Existing Web Session
 
 ## Integration with robotframework-aivision
 
-When [robotframework-aivision](https://github.com/robco/robotframework-aivision) is loaded alongside AIAgentic, additional visual analysis capabilities become available to the agents, including screenshot analysis, visual regression detection, and accessibility validation.
+When [robotframework-aivision](https://github.com/robco/robotframework-aivision) is loaded alongside AITester, additional visual analysis capabilities become available to the agents, including screenshot analysis, visual regression detection, and accessibility validation.
 
 ## Reporting
 
-robotframework-aiagentic uses only Robot Framework v7.4+ built-in reporting
+robotframework-aitester uses only Robot Framework v7.4+ built-in reporting
 (`log.html` / `report.html`). No custom standalone reports are generated.
-`Run Agentic*` keywords return a short completion status; review details in the RF log.
+`Run AI*` keywords return a short completion status; review details in the RF log.
 
 When you provide user-defined numbered test steps (via the `test_steps` argument
 or common step variables such as `${TEST_STEPS}` / `${AI_STEPS}`), those steps are treated as the main flow and
-agentic actions are grouped under them in
+AI actions are grouped under them in
 the RF log with embedded screenshots for readability.
 
 If `test_objective` is left empty and no numbered steps are available, the
-`Run Agentic*` keywords now fail fast instead of silently improvising a generic flow.
+`Run AI*` keywords now fail fast instead of silently improvising a generic flow.
 
 If the agent's completion message explicitly reports a failed status,
-`Run Agentic*` will fail the Robot test to keep the RF result consistent.
+`Run AI*` will fail the Robot test to keep the RF result consistent.
 
 Additional reporting features:
 
-- Step-level logging via `Agentic Step` with status, duration, assertions, and embedded screenshots
+- Step-level logging via `AI Step` with status, duration, assertions, and embedded screenshots
 - High-level grouping when user-defined steps are supplied
-- Screenshot paths are normalized into `${OUTPUT_DIR}`, and embedded preview artifacts are cached under `${OUTPUT_DIR}/agentic-screenshots`
+- Screenshot paths are normalized into `${OUTPUT_DIR}`, and embedded preview artifacts are cached under `${OUTPUT_DIR}/aitester-screenshots`
 - Screenshot files may use any image extension supported by the underlying library (e.g., `.png`, `.jpg`, `.jpeg`).
-- When a screenshot filename is explicitly provided for Selenium/Appium, AIAgentic normalizes it to `.png`
+- When a screenshot filename is explicitly provided for Selenium/Appium, AITester normalizes it to `.png`
   to avoid WebDriver warnings about mismatched file types.
 
 ## Browser State Analysis
 
-For web sessions, AIAgentic now prefers a shared cached page snapshot instead of
+For web sessions, AITester now prefers a shared cached page snapshot instead of
 running multiple overlapping DOM scans on every analysis step.
 
 - `get_page_snapshot` captures title, URL, text preview, forms, links, headings, interactive elements, and possible blocking overlays in one pass
-- `get_interactive_elements`, `get_page_structure`, `get_page_text_content`, `get_all_links`, and `get_form_fields` reuse that cached snapshot where possible
+- `get_loading_state` and the loading section of `get_page_snapshot` use DOM/accessibility heuristics to surface visible loading indicators such as `aria-busy` regions, progress bars, loaders/spinners, and skeleton/shimmer placeholders
+- `get_interactive_elements`, `get_page_structure`, `get_page_text_content`, `get_all_links`, `get_frame_inventory`, and `get_form_fields` reuse that cached snapshot where possible
+- iframe-heavy pages are now better supported: the snapshot includes iframe/frame inventory, and `get_frame_inventory` summarizes candidate frame locators, titles, URLs, and same-origin previews so the agent can switch into the right frame before interacting
 - Successful mutating Selenium actions invalidate the cache so later analysis reflects the latest page state
 - `selenium_handle_common_blockers` uses that snapshot to clear common blockers such as cookie banners, consent popups, newsletter modals, and tutorial overlays before retrying the intended action
-- When a cookie or consent banner is detected during a web run, AIAgentic prefers accept/allow actions so the banner disappears unless the user explicitly requested a different choice
+- When a cookie or consent banner is detected during a web run, AITester prefers accept/allow actions so the banner disappears unless the user explicitly requested a different choice
+- For slow pages with loading spinners or skeleton screens, prefer condition-based waits such as
+  `selenium_wait_until_page_contains`, `selenium_wait_until_page_contains_element`,
+  `selenium_wait_until_element_is_not_visible`, `selenium_wait_until_page_does_not_contain`,
+  and `selenium_wait_until_page_does_not_contain_element` instead of fixed delays
+- When the concrete loading implementation is unknown, `selenium_wait_for_loading_to_finish`
+  polls fresh page snapshots and waits for consecutive clean checks with no detected loading
+  indicators; treat it as a best-effort readiness heuristic, not a guarantee of network idle
 
 ## Mobile State Analysis
 
-For mobile sessions, AIAgentic can inspect the current Appium source and summarize
+For mobile sessions, AITester can inspect the current Appium source and summarize
 likely interruptions before continuing the requested flow. The current Appium
 source is cached per session so repeated calls do not re-fetch the same screen
 state unless a mutating Appium action succeeds or a refresh is requested.
@@ -347,12 +356,12 @@ state unless a mutating Appium action succeeds or a refresh is requested.
 
 ## UI Element Scrolling
 
-All main agentic keywords accept `scroll_into_view` (default `True`). When enabled,
+All main AI keywords accept `scroll_into_view` (default `True`). When enabled,
 the agent scrolls elements into view before interacting with them, improving
 observability in the RF log/screenshots.
 
 ```robot
-${status}=    Run Agentic Test
+${status}=    Run AI Test
 ...    test_objective=Validate checkout flow
 ...    scroll_into_view=False
 ```

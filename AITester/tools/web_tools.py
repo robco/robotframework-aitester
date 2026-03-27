@@ -8,10 +8,12 @@ These tools provide the AI agent with full browser automation capabilities
 via SeleniumLibrary's battle-tested Selenium/WebDriver integration.
 """
 
+import time
 import logging
 from urllib.parse import urlsplit, urlunsplit
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
+from robot.utils.robottime import timestr_to_secs
 
 from .common_tools import instrument_tool_list, _normalize_screenshot_filename
 from .browser_analysis_tools import (
@@ -28,7 +30,7 @@ def _get_selenium():
     bi = BuiltIn()
     lib_name = "SeleniumLibrary"
     try:
-        override = bi.get_variable_value("${AIAGENTIC_SELENIUM_LIBRARY}")
+        override = bi.get_variable_value("${AITESTER_SELENIUM_LIBRARY}")
         if override:
             lib_name = override
     except RobotNotRunningError:
@@ -39,7 +41,7 @@ def _get_selenium():
         raise RuntimeError(
             f"SeleniumLibrary instance '{lib_name}' not found. "
             "Ensure SeleniumLibrary is imported or set selenium_library "
-            "when importing AIAgentic."
+            "when importing AITester."
         ) from exc
 
 
@@ -57,6 +59,381 @@ def _maybe_scroll_into_view(sl, locator: str) -> None:
         sl.scroll_element_into_view(locator)
     except Exception as exc:
         logger.debug("Unable to scroll element into view (%s): %s", locator, exc)
+
+
+def _get_webelement(sl, locator: str):
+    try:
+        return sl.find_element(locator)
+    except Exception:
+        return sl.get_webelement(locator)
+
+
+def _element_tag_name(element) -> str:
+    try:
+        return str(getattr(element, "tag_name", "") or "").lower()
+    except Exception:
+        return ""
+
+
+def _get_dropdown_profile(driver, element) -> dict:
+    return driver.execute_script(
+        """
+        const el = arguments[0];
+        if (!el) {
+            return {
+                tag: null,
+                role: null,
+                type: null,
+                searchable: false,
+            };
+        }
+        const tag = (el.tagName || '').toLowerCase();
+        const role = (el.getAttribute('role') || '').toLowerCase();
+        const type = (el.type || '').toLowerCase();
+        const autocomplete = (el.getAttribute('aria-autocomplete') || '').toLowerCase();
+        const searchable = (
+            tag === 'input' ||
+            tag === 'textarea' ||
+            (!!el.isContentEditable) ||
+            (role === 'combobox' && autocomplete !== 'none')
+        );
+        return {
+            tag: tag || null,
+            role: role || null,
+            type: type || null,
+            searchable: searchable,
+        };
+        """,
+        element,
+    )
+
+
+def _click_custom_dropdown_option(
+    sl,
+    locator: str,
+    *,
+    label: str | None = None,
+    value: str | None = None,
+    timeout: str = "5s",
+) -> str:
+    if label is None and value is None:
+        raise AssertionError("Either label or value must be provided for dropdown selection.")
+
+    driver = sl.driver
+    timeout_seconds = _parse_time_value(timeout, "timeout")
+    deadline = time.monotonic() + timeout_seconds
+    option_name = label if label is not None else value
+    last_result = None
+
+    _maybe_scroll_into_view(sl, locator)
+    sl.click_element(locator)
+
+    try:
+        profile = _get_dropdown_profile(driver, _get_webelement(sl, locator))
+    except Exception as exc:
+        logger.debug("Unable to inspect dropdown profile for %s: %s", locator, exc)
+        profile = {}
+
+    if label is not None and profile.get("searchable") and profile.get("tag") in {"input", "textarea"}:
+        try:
+            sl.input_text(locator, label)
+        except Exception as exc:
+            logger.debug("Unable to type into searchable dropdown %s: %s", locator, exc)
+
+    js_code = """
+    const trigger = arguments[0];
+    const expectedLabel = arguments[1];
+    const expectedValue = arguments[2];
+
+    function safeText(value, limit) {
+        return String(value || '').replace(/\\s+/g, ' ').trim().substring(0, limit);
+    }
+
+    function normalize(value) {
+        return String(value || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+    }
+
+    function getDomXPath(element) {
+        if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
+        const segments = [];
+        let current = element;
+        while (current && current.nodeType === Node.ELEMENT_NODE) {
+            const tag = current.tagName.toLowerCase();
+            if (tag === 'html') {
+                segments.unshift('html[1]');
+                break;
+            }
+            let index = 1;
+            let sibling = current.previousElementSibling;
+            while (sibling) {
+                if (sibling.tagName && sibling.tagName.toLowerCase() === tag) {
+                    index += 1;
+                }
+                sibling = sibling.previousElementSibling;
+            }
+            segments.unshift(tag + '[' + index + ']');
+            current = current.parentElement;
+        }
+        if (!segments.length) return null;
+        return 'xpath=//' + segments.join('/');
+    }
+
+    function cssAttributeSelector(attributeName, value) {
+        if (!value) return null;
+        return 'css=[' + attributeName + '=' + JSON.stringify(String(value)) + ']';
+    }
+
+    function getLocator(element) {
+        if (!element) return null;
+        if (element.id) return 'id=' + element.id;
+        const testId = element.getAttribute('data-testid');
+        if (testId) return cssAttributeSelector('data-testid', testId);
+        if (element.name) return cssAttributeSelector('name', element.name);
+        const aria = element.getAttribute('aria-label');
+        if (aria) return cssAttributeSelector('aria-label', aria);
+        return getDomXPath(element);
+    }
+
+    function isVisible(element) {
+        if (!element || !element.getBoundingClientRect) return false;
+        const rect = element.getBoundingClientRect();
+        const ownerWindow = (
+            element &&
+            element.ownerDocument &&
+            element.ownerDocument.defaultView
+        ) ? element.ownerDocument.defaultView : window;
+        const style = ownerWindow.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 &&
+            style.display !== 'none' &&
+            style.visibility !== 'hidden';
+    }
+
+    function getElementText(element) {
+        return safeText(
+            element.innerText || element.textContent ||
+            element.getAttribute('aria-label') || element.value || '',
+            160
+        );
+    }
+
+    function addRoots(target, roots) {
+        const seenRoots = new Set();
+
+        function push(node) {
+            if (!node || seenRoots.has(node)) return;
+            seenRoots.add(node);
+            roots.push(node);
+        }
+
+        function pushIds(rawValue) {
+            String(rawValue || '').split(/\\s+/).filter(Boolean).forEach(id => {
+                push(document.getElementById(id));
+            });
+        }
+
+        if (!target) return;
+        pushIds(target.getAttribute('aria-controls'));
+        pushIds(target.getAttribute('aria-owns'));
+
+        const owner = target.closest('[role="combobox"], [role="listbox"]');
+        if (owner) {
+            push(owner);
+            pushIds(owner.getAttribute('aria-controls'));
+            pushIds(owner.getAttribute('aria-owns'));
+        }
+
+        document.querySelectorAll(
+            '[role="listbox"], [role="menu"], [role="tree"], [role="grid"], ' +
+            '[data-state="open"], [data-open="true"], [data-headlessui-state]'
+        ).forEach(node => {
+            if (isVisible(node)) push(node);
+        });
+    }
+
+    function collectCandidates(root, withinPopup) {
+        const selectors = [
+            '[role="option"]',
+            '[role="menuitem"]',
+            '[role="menuitemradio"]',
+            '[role="menuitemcheckbox"]',
+            '[data-value]',
+            '[class*="option"]',
+            '[class*="menu-item"]',
+            'li',
+            'button',
+            'option',
+        ];
+        const nodes = [];
+        root.querySelectorAll(selectors.join(', ')).forEach(node => {
+            if (!isVisible(node) || node === trigger) return;
+            const text = getElementText(node);
+            const rawValue = String(
+                node.value ||
+                node.getAttribute('value') ||
+                node.getAttribute('data-value') ||
+                node.getAttribute('data-key') ||
+                ''
+            );
+            const valueText = safeText(rawValue, 160);
+            if (!text && !valueText) return;
+            nodes.push({
+                element: node,
+                text: text,
+                value: valueText,
+                locator: getLocator(node),
+                role: (node.getAttribute('role') || '').toLowerCase(),
+                within_popup: withinPopup,
+            });
+        });
+        return nodes;
+    }
+
+    function scoreCandidate(candidate) {
+        const labelNeedle = normalize(expectedLabel);
+        const valueNeedle = normalize(expectedValue);
+        const text = normalize(candidate.text);
+        const valueText = normalize(candidate.value);
+        let score = 0;
+
+        if (labelNeedle) {
+            if (text === labelNeedle) {
+                score += 220;
+            } else if (valueText === labelNeedle) {
+                score += 180;
+            } else if (text.includes(labelNeedle) || valueText.includes(labelNeedle)) {
+                score += 90;
+            } else {
+                return -1;
+            }
+        }
+
+        if (valueNeedle) {
+            if (valueText === valueNeedle) {
+                score += 240;
+            } else if (text === valueNeedle) {
+                score += 160;
+            } else if (valueText.includes(valueNeedle) || text.includes(valueNeedle)) {
+                score += 85;
+            } else {
+                return -1;
+            }
+        }
+
+        if (candidate.within_popup) score += 30;
+        if (candidate.role === 'option') score += 20;
+        if (candidate.role.startsWith('menuitem')) score += 10;
+        if (candidate.locator) score += 5;
+        return score;
+    }
+
+    const roots = [];
+    addRoots(trigger, roots);
+
+    const candidates = [];
+    const seen = new Set();
+    roots.forEach(root => {
+        collectCandidates(root, true).forEach(candidate => {
+            const key = (candidate.locator || candidate.text || '') + '|' + (candidate.value || '');
+            if (seen.has(key)) return;
+            seen.add(key);
+            candidates.push(candidate);
+        });
+    });
+
+    collectCandidates(document, false).forEach(candidate => {
+        const key = (candidate.locator || candidate.text || '') + '|' + (candidate.value || '');
+        if (seen.has(key)) return;
+        seen.add(key);
+        candidates.push(candidate);
+    });
+
+    let best = null;
+    let bestScore = -1;
+    candidates.forEach(candidate => {
+        const score = scoreCandidate(candidate);
+        if (score > bestScore) {
+            bestScore = score;
+            best = candidate;
+        }
+    });
+
+    if (!best || bestScore < 0) {
+        return {
+            matched: false,
+            target: expectedLabel || expectedValue || '',
+            candidates: candidates.slice(0, 8).map(candidate => candidate.text || candidate.value || '?'),
+        };
+    }
+
+    best.element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (typeof best.element.click === 'function') {
+        best.element.click();
+    } else {
+        best.element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }
+
+    return {
+        matched: true,
+        target: expectedLabel || expectedValue || '',
+        matched_text: best.text || null,
+        matched_value: best.value || null,
+        matched_locator: best.locator || null,
+    };
+    """
+
+    while True:
+        try:
+            current_element = _get_webelement(sl, locator)
+            last_result = driver.execute_script(js_code, current_element, label, value)
+        except Exception as exc:
+            logger.debug("Custom dropdown option lookup failed for %s: %s", locator, exc)
+            last_result = None
+
+        if isinstance(last_result, dict) and last_result.get("matched"):
+            return (
+                f"Selected '{option_name}' from custom dropdown: {locator}"
+            )
+
+        now = time.monotonic()
+        if now >= deadline:
+            break
+        time.sleep(min(0.25, deadline - now))
+
+    candidate_preview = ""
+    if isinstance(last_result, dict):
+        candidates = last_result.get("candidates") or []
+        if candidates:
+            candidate_preview = " Visible candidates: " + ", ".join(candidates[:6])
+    raise AssertionError(
+        f"Unable to select '{option_name}' from custom dropdown: {locator}."
+        + candidate_preview
+    )
+
+
+def _select_option(
+    sl,
+    locator: str,
+    *,
+    label: str | None = None,
+    value: str | None = None,
+    timeout: str = "5s",
+) -> str:
+    _maybe_scroll_into_view(sl, locator)
+    element = _get_webelement(sl, locator)
+    tag_name = _element_tag_name(element)
+    if tag_name == "select":
+        if label is not None:
+            sl.select_from_list_by_label(locator, label)
+            return "native"
+        sl.select_from_list_by_value(locator, value)
+        return "native"
+    return _click_custom_dropdown_option(
+        sl,
+        locator,
+        label=label,
+        value=value,
+        timeout=timeout,
+    )
 
 
 def _collect_blocker_actions(snapshot) -> list[dict]:
@@ -170,6 +547,39 @@ def _assert_browser_termination_allowed(action_name: str, sl=None) -> None:
         "environment. Close or restart the browser only when the user "
         "explicitly requests it."
     )
+
+
+def _parse_time_value(value, label: str) -> float:
+    try:
+        if isinstance(value, (int, float)):
+            seconds = float(value)
+        else:
+            seconds = float(timestr_to_secs(str(value)))
+    except Exception as exc:
+        raise AssertionError(
+            f"{label} must be a positive duration such as '10s' or '500ms', got '{value}'."
+        ) from exc
+    if seconds <= 0:
+        raise AssertionError(f"{label} must be greater than 0, got '{value}'.")
+    return seconds
+
+
+def _summarize_loading_state(snapshot: dict) -> str:
+    ready_state = str(snapshot.get("document_ready_state", "unknown")).lower()
+    indicators = snapshot.get("loading_indicators") or []
+    if not indicators:
+        return f"readyState={ready_state}, indicators=none"
+    parts = []
+    for indicator in indicators[:3]:
+        detail = indicator.get("kind", "loading")
+        locator = indicator.get("locator")
+        text = indicator.get("text")
+        if locator:
+            detail += f" locator={locator}"
+        elif text:
+            detail += f' text="{text[:40]}"'
+        parts.append(detail)
+    return f"readyState={ready_state}, indicators=" + "; ".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -404,8 +814,7 @@ def selenium_select_from_list_by_label(locator: str, label: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
-    _maybe_scroll_into_view(sl, locator)
-    sl.select_from_list_by_label(locator, label)
+    _select_option(sl, locator, label=label)
     return f"Selected '{label}' from dropdown: {locator}"
 
 
@@ -421,9 +830,39 @@ def selenium_select_from_list_by_value(locator: str, value: str) -> str:
         Confirmation message.
     """
     sl = _get_selenium()
-    _maybe_scroll_into_view(sl, locator)
-    sl.select_from_list_by_value(locator, value)
+    _select_option(sl, locator, value=value)
     return f"Selected value '{value}' from dropdown: {locator}"
+
+
+@tool
+def selenium_select_option(
+    locator: str,
+    option: str,
+    by: str = "label",
+    timeout: str = "5s",
+) -> str:
+    """Selects an option from a native or custom dropdown widget.
+
+    Args:
+        locator: Element locator for the dropdown trigger or select element.
+        option: Option label text or value to select.
+        by: Matching mode, either ``label`` or ``value``.
+        timeout: Maximum wait time for custom dropdown options to appear.
+
+    Returns:
+        Confirmation message.
+    """
+    normalized_by = str(by or "label").strip().lower()
+    sl = _get_selenium()
+    if normalized_by == "label":
+        _select_option(sl, locator, label=option, timeout=timeout)
+    elif normalized_by == "value":
+        _select_option(sl, locator, value=option, timeout=timeout)
+    else:
+        raise AssertionError(
+            f"Unsupported selection mode '{by}'. Use 'label' or 'value'."
+        )
+    return f"Selected '{option}' from dropdown ({normalized_by}): {locator}"
 
 
 @tool
@@ -833,6 +1272,121 @@ def selenium_wait_until_page_contains_element(locator: str, timeout: str = "10s"
     return f"Page now contains element: {locator}"
 
 
+@tool
+def selenium_wait_until_element_is_not_visible(locator: str, timeout: str = "10s") -> str:
+    """Waits until an element is no longer visible on the page.
+
+    Args:
+        locator: Element locator to wait on.
+        timeout: Maximum time to wait (e.g., '10s', '30s').
+
+    Returns:
+        Confirmation when the element is no longer visible.
+    """
+    sl = _get_selenium()
+    sl.wait_until_element_is_not_visible(locator, timeout)
+    return f"Element is no longer visible: {locator}"
+
+
+@tool
+def selenium_wait_until_page_does_not_contain(text: str, timeout: str = "10s") -> str:
+    """Waits until the page no longer contains the specified text.
+
+    Args:
+        text: Text that should disappear.
+        timeout: Maximum time to wait.
+
+    Returns:
+        Confirmation when the text is no longer present.
+    """
+    sl = _get_selenium()
+    sl.wait_until_page_does_not_contain(text, timeout)
+    return f"Page no longer contains: '{text}'"
+
+
+@tool
+def selenium_wait_until_page_does_not_contain_element(
+    locator: str, timeout: str = "10s"
+) -> str:
+    """Waits until the page no longer contains the specified element.
+
+    Args:
+        locator: Element locator to wait on.
+        timeout: Maximum time to wait.
+
+    Returns:
+        Confirmation when the element is gone.
+    """
+    sl = _get_selenium()
+    sl.wait_until_page_does_not_contain_element(locator, timeout)
+    return f"Page no longer contains element: {locator}"
+
+
+@tool
+def selenium_wait_for_loading_to_finish(
+    timeout: str = "10s",
+    poll_interval: str = "500ms",
+    stable_polls: int = 2,
+) -> str:
+    """Waits until auto-detected page loading indicators stop appearing.
+
+    This is a best-effort helper for pages where the loading implementation
+    is unknown. It polls fresh page snapshots and succeeds only after the
+    page shows no loading indicators for a number of consecutive checks.
+
+    Args:
+        timeout: Maximum total wait time.
+        poll_interval: Delay between snapshot polls.
+        stable_polls: Number of consecutive clean polls required.
+
+    Returns:
+        Confirmation when the page appears stable.
+    """
+    if stable_polls < 1:
+        raise AssertionError(f"stable_polls must be at least 1, got '{stable_polls}'.")
+
+    timeout_seconds = _parse_time_value(timeout, "timeout")
+    poll_seconds = _parse_time_value(poll_interval, "poll_interval")
+    deadline = time.monotonic() + timeout_seconds
+    clean_polls = 0
+    checks = 0
+    observed_loading = False
+    last_snapshot = {
+        "document_ready_state": "unknown",
+        "loading_indicators": [],
+    }
+
+    while True:
+        snapshot = _get_page_snapshot_data(force_refresh=True)
+        checks += 1
+        last_snapshot = snapshot
+        ready_state = str(snapshot.get("document_ready_state", "unknown")).lower()
+        indicators = snapshot.get("loading_indicators") or []
+        is_loading = ready_state == "loading" or bool(indicators)
+
+        if is_loading:
+            observed_loading = True
+            clean_polls = 0
+        else:
+            clean_polls += 1
+            if clean_polls >= stable_polls:
+                return (
+                    "Page appears stable: no loading indicators detected for "
+                    f"{stable_polls} consecutive checks "
+                    f"({_summarize_loading_state(snapshot)}, checks={checks}, "
+                    f"observed_loading={'yes' if observed_loading else 'no'})."
+                )
+
+        now = time.monotonic()
+        if now >= deadline:
+            raise AssertionError(
+                "Loading did not finish within "
+                f"{timeout}. Last observed state: {_summarize_loading_state(last_snapshot)}."
+            )
+
+        time.sleep(min(poll_seconds, deadline - now))
+
+
 # ---------------------------------------------------------------------------
 # Screenshots
 # ---------------------------------------------------------------------------
@@ -945,6 +1499,7 @@ WEB_TOOLS = instrument_tool_list([
     selenium_clear_element_text,
     selenium_select_from_list_by_label,
     selenium_select_from_list_by_value,
+    selenium_select_option,
     selenium_select_checkbox,
     selenium_unselect_checkbox,
     selenium_mouse_over,
@@ -968,6 +1523,10 @@ WEB_TOOLS = instrument_tool_list([
     selenium_wait_until_element_is_enabled,
     selenium_wait_until_page_contains,
     selenium_wait_until_page_contains_element,
+    selenium_wait_until_element_is_not_visible,
+    selenium_wait_until_page_does_not_contain,
+    selenium_wait_until_page_does_not_contain_element,
+    selenium_wait_for_loading_to_finish,
     selenium_capture_page_screenshot,
     selenium_execute_javascript,
     selenium_switch_window,

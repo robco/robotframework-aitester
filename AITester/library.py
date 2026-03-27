@@ -15,11 +15,11 @@
 # limitations under the License.
 
 """
-Main Robot Framework library class for robotframework-aiagentic.
+Main Robot Framework library class for robotframework-aitester.
 
 This is the public interface of the library, exposing Robot Framework keywords
-such as Run Agentic Test, Run Agentic Exploration, and Run Agentic API Test
-that testers invoke from .robot files.
+such as Run AI Test, Run AI Exploration, and Run AI API Test that testers
+invoke from .robot files.
 """
 
 import ast
@@ -52,8 +52,8 @@ from .platforms import Platforms
 logger = logging.getLogger(__name__)
 
 
-class AIAgentic:
-    """AI Agentic Testing Library for Robot Framework.
+class AITester:
+    """Autonomous AI testing library for Robot Framework.
 
     Enables fully autonomous, AI-driven test automation by combining
     the Strands Agents SDK with native RF library integration. Users
@@ -68,22 +68,44 @@ class AIAgentic:
     Supported AI platforms: OpenAI, Ollama, Gemini, Anthropic, Bedrock
 
     Examples:
-    | Library | AIAgentic | platform=OpenAI | api_key=%{OPENAI_API_KEY} | model=gpt-4o |
-    | Library | AIAgentic | platform=Ollama | model=llama3.3 |
+    | Library | AITester | platform=OpenAI | api_key=%{OPENAI_API_KEY} | model=gpt-4o |
+    | Library | AITester | platform=Ollama | model=llama3.3 |
     """
 
     ROBOT_LIBRARY_SCOPE = "GLOBAL"
     ROBOT_LIBRARY_VERSION = "0.1.0"
     ROBOT_LIBRARY_DOC_FORMAT = "ROBOT"
 
-    _SCREENSHOT_SUBDIR = "agentic-screenshots"
+    _SCREENSHOT_SUBDIR = "aitester-screenshots"
     _INLINE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"}
     _AUTO_TEST_STEPS_VARIABLES = (
         "${TEST_STEPS}",
         "${AI_STEPS}",
-        "${AGENTIC_TEST_STEPS}",
+        "${AI_TEST_STEPS}",
+        "${AITESTER_TEST_STEPS}",
         "${USER_TEST_STEPS}",
     )
+    _NON_QUALIFYING_HIGH_LEVEL_ACTIONS = {
+        "selenium_capture_page_screenshot",
+        "selenium_get_text",
+        "selenium_get_element_attribute",
+        "selenium_get_value",
+        "selenium_get_location",
+        "get_page_snapshot",
+        "get_loading_state",
+        "get_page_structure",
+        "get_interactive_elements",
+        "get_page_text_content",
+        "get_all_links",
+        "get_frame_inventory",
+        "get_form_fields",
+        "check_page_errors",
+        "appium_capture_page_screenshot",
+        "appium_get_text",
+        "appium_get_element_attribute",
+        "appium_get_view_snapshot",
+        "appium_get_source",
+    }
 
     def __init__(
         self,
@@ -103,7 +125,7 @@ class AIAgentic:
         requests_library: str = "RequestsLibrary",
         appium_library: str = "AppiumLibrary",
     ):
-        """Initialize the AIAgentic library.
+        """Initialize the AITester library.
 
         The constructor configures the AI platform, default test mode, and
         aliases to already-loaded Robot Framework libraries that agent tools
@@ -174,7 +196,7 @@ class AIAgentic:
         self._register_library_aliases()
 
         logger.info(
-            "AIAgentic initialized: platform=%s, model=%s, test_mode=%s",
+            "AITester initialized: platform=%s, model=%s, test_mode=%s",
             platform,
             model or self.platform.value["default_model"],
             test_mode,
@@ -212,11 +234,11 @@ class AIAgentic:
         try:
             bi = BuiltIn()
             if self.selenium_library:
-                bi.set_global_variable("${AIAGENTIC_SELENIUM_LIBRARY}", self.selenium_library)
+                bi.set_global_variable("${AITESTER_SELENIUM_LIBRARY}", self.selenium_library)
             if self.requests_library:
-                bi.set_global_variable("${AIAGENTIC_REQUESTS_LIBRARY}", self.requests_library)
+                bi.set_global_variable("${AITESTER_REQUESTS_LIBRARY}", self.requests_library)
             if self.appium_library:
-                bi.set_global_variable("${AIAGENTIC_APPIUM_LIBRARY}", self.appium_library)
+                bi.set_global_variable("${AITESTER_APPIUM_LIBRARY}", self.appium_library)
         except (RuntimeError, RobotNotRunningError):
             pass
 
@@ -461,7 +483,7 @@ class AIAgentic:
 
     def _resolve_selenium_library_name(self) -> str:
         try:
-            override = BuiltIn().get_variable_value("${AIAGENTIC_SELENIUM_LIBRARY}")
+            override = BuiltIn().get_variable_value("${AITESTER_SELENIUM_LIBRARY}")
             if override:
                 return str(override)
         except (RuntimeError, RobotNotRunningError):
@@ -470,7 +492,7 @@ class AIAgentic:
 
     def _resolve_appium_library_name(self) -> str:
         try:
-            override = BuiltIn().get_variable_value("${AIAGENTIC_APPIUM_LIBRARY}")
+            override = BuiltIn().get_variable_value("${AITESTER_APPIUM_LIBRARY}")
             if override:
                 return str(override)
         except (RuntimeError, RobotNotRunningError):
@@ -483,7 +505,7 @@ class AIAgentic:
         if not sl:
             raise AssertionError(
                 f"SeleniumLibrary instance '{lib_name}' not found. "
-                "Ensure SeleniumLibrary is imported and that AIAgentic is "
+                "Ensure SeleniumLibrary is imported and that AITester is "
                 "configured with the correct selenium_library alias."
             )
         try:
@@ -511,7 +533,7 @@ class AIAgentic:
         if not al:
             raise AssertionError(
                 f"AppiumLibrary instance '{lib_name}' not found. "
-                "Ensure AppiumLibrary is imported and that AIAgentic is "
+                "Ensure AppiumLibrary is imported and that AITester is "
                 "configured with the correct appium_library alias."
             )
         try:
@@ -563,7 +585,7 @@ class AIAgentic:
     def _allows_state_check_only_step(text: str) -> bool:
         if not text:
             return False
-        if AIAgentic._is_verification_step(text):
+        if AITester._is_verification_step(text):
             return True
         lowered = text.lower()
         keywords = (
@@ -626,7 +648,10 @@ class AIAgentic:
             if not steps:
                 missing.append(f"{idx}. {step_text}")
                 continue
-            has_pass = any(s.status == StepStatus.PASSED for s in steps)
+            has_pass = any(
+                s.status == StepStatus.PASSED and self._is_qualifying_high_level_step_action(s.action)
+                for s in steps
+            )
             if not has_pass:
                 not_passed.append(f"{idx}. {step_text}")
 
@@ -640,6 +665,13 @@ class AIAgentic:
                 parts.extend(not_passed)
             return "\n".join(parts)
         return None
+
+    @classmethod
+    def _is_qualifying_high_level_step_action(cls, action: str) -> bool:
+        normalized = str(action or "").strip()
+        if not normalized:
+            return False
+        return normalized not in cls._NON_QUALIFYING_HIGH_LEVEL_ACTIONS
 
     @staticmethod
     def _detect_failure_in_result(result: Optional[str]) -> Optional[str]:
@@ -704,7 +736,7 @@ class AIAgentic:
                 except (ValueError, SyntaxError):
                     return stripped
                 if isinstance(parsed, (list, tuple)):
-                    return AIAgentic._normalize_steps_value(parsed)
+                    return AITester._normalize_steps_value(parsed)
             return stripped
         return str(value)
 
@@ -1006,7 +1038,7 @@ class AIAgentic:
     @staticmethod
     def _allows_explicit_browser_termination(*values: Any) -> bool:
         """Backward-compatible alias for explicit UI session termination checks."""
-        return AIAgentic._allows_explicit_session_termination(*values)
+        return AITester._allows_explicit_session_termination(*values)
 
     def _start_session(
         self,
@@ -1086,7 +1118,7 @@ class AIAgentic:
             steps = groups.get(idx, [])
             if not steps:
                 parts.append(
-                    '<div style="color:#6c757d;font-style:italic;margin-left:12px;">No agentic steps recorded.</div>'
+                    '<div style="color:#6c757d;font-style:italic;margin-left:12px;">No AI steps recorded.</div>'
                 )
                 continue
             parts.append('<ul style="margin:6px 0 10px 20px;">')
@@ -1143,13 +1175,15 @@ class AIAgentic:
 
         if error or validation_error or completion_error:
             session.finalize(SessionStatus.FAILED)
+        elif session.high_level_steps:
+            session.finalize(SessionStatus.COMPLETED)
         else:
             session.finalize()
         self._log_high_level_summary(session)
         self._log_basic_summary(session)
 
-    @keyword("Agentic High Level Step")
-    def agentic_high_level_step(self, step_number: str, step_description: str = "") -> str:
+    @keyword("AI High Level Step")
+    def ai_high_level_step(self, step_number: str, step_description: str = "") -> str:
         """Logs a high-level step marker into the Robot Framework log.
 
         This keyword is primarily used by the agent runtime to group detailed
@@ -1164,11 +1198,11 @@ class AIAgentic:
         - A short confirmation string with the step number and description.
 
         Examples:
-        | Agentic High Level Step | 1 | Open the login page |
-        | Agentic Step | action=selenium_go_to | description=Navigate to /login | status=PASS |
+        | AI High Level Step | 1 | Open the login page |
+        | AI Step | action=selenium_go_to | description=Navigate to /login | status=PASS |
 
-        | Agentic High Level Step | 2 | Verify successful login |
-        | Agentic Step | action=selenium_page_should_contain | description=Check dashboard welcome text | status=PASS |
+        | AI High Level Step | 2 | Verify successful login |
+        | AI Step | action=selenium_page_should_contain | description=Check dashboard welcome text | status=PASS |
         """
         safe_desc = self._escape_html(step_description).replace("\n", "<br/>")
         html_block = (
@@ -1182,8 +1216,8 @@ class AIAgentic:
         self._log_html_message(html_block)
         return f"High-Level Step {step_number}: {step_description}"
 
-    @keyword("Agentic Step")
-    def agentic_step(
+    @keyword("AI Step")
+    def ai_step(
         self,
         action: str,
         description: str,
@@ -1195,11 +1229,11 @@ class AIAgentic:
         high_level_step_number: str = "",
         high_level_step_description: str = "",
     ) -> str:
-        """Logs a single detailed agentic step into the Robot Framework log.
+        """Logs a single detailed AI step into the Robot Framework log.
 
         This keyword is mainly intended for internal use by the instrumented
         agent tools. It is still available as a public keyword when you want to
-        log custom step details in the same format as native agentic actions.
+        log custom step details in the same format as native AI actions.
 
         Arguments:
         - ``action``: Tool or action name, for example ``selenium_click_element``.
@@ -1230,15 +1264,15 @@ class AIAgentic:
           the raw ``screenshot_path`` passed by the caller.
 
         Examples:
-        | Agentic Step | action=selenium_click_element |
+        | AI Step | action=selenium_click_element |
         | ... | description=Click Sign in button | status=PASS | duration_ms=184 |
 
-        | Agentic Step | action=selenium_page_should_contain |
+        | AI Step | action=selenium_page_should_contain |
         | ... | description=Verify dashboard message | status=PASS |
         | ... | assertion_message=Welcome back | high_level_step_number=2 |
         | ... | high_level_step_description=Verify successful login |
 
-        | Agentic Step | action=appium_capture_page_screenshot |
+        | AI Step | action=appium_capture_page_screenshot |
         | ... | description=Capture failure evidence | status=ERROR |
         | ... | error_message=Login dialog never appeared |
         | ... | screenshot_path=${OUTPUT DIR}/login-failure.png |
@@ -1318,8 +1352,8 @@ class AIAgentic:
 
         return f"{action} - {description} ({status_upper})"
 
-    @keyword
-    def run_agentic_test(
+    @keyword("Run AI Test")
+    def run_ai_test(
         self,
         test_objective: str,
         app_context: str = "",
@@ -1328,7 +1362,7 @@ class AIAgentic:
         test_steps: str = None,
         scroll_into_view: bool = True,
     ) -> str:
-        """Runs an autonomous agentic test in web, API, or mobile mode.
+        """Runs an autonomous AI test in web, API, or mobile mode.
 
         The keyword prepares the execution session, discovers reusable browser
         or app state when relevant, parses numbered user steps, and executes the
@@ -1364,7 +1398,7 @@ class AIAgentic:
         - Fails if user-defined steps are not completed successfully.
 
         Examples:
-        | ${status}= | Run Agentic Test |
+        | ${status}= | Run AI Test |
         | ... | test_objective=Validate login, logout, and session reuse |
         | ... | app_context=Customer portal with email and password authentication |
         | Log | ${status} |
@@ -1373,7 +1407,7 @@ class AIAgentic:
         | ... | 1. Open the login page |
         | ... | 2. Sign in with valid credentials |
         | ... | 3. Verify the dashboard is visible |
-        | ${status}= | Run Agentic Test |
+        | ${status}= | Run AI Test |
         | ... | test_objective=Smoke test the login flow |
         | ... | app_context=Web application with active Selenium session |
         | ... | test_mode=web | test_steps=${TEST_STEPS} | max_iterations=30 |
@@ -1382,7 +1416,7 @@ class AIAgentic:
         | ... | 1. Create a user |
         | ... | 2. Fetch the created user |
         | ... | 3. Delete the user |
-        | ${status}= | Run Agentic Test |
+        | ${status}= | Run AI Test |
         | ... | test_objective=${API_OBJECTIVE} |
         | ... | test_mode=api | app_context=User management service |
         """
@@ -1394,7 +1428,7 @@ class AIAgentic:
         )
         self._log_implicit_test_steps_source(test_steps, steps_source)
         self._ensure_objective_or_steps_present(
-            keyword_name="Run Agentic Test",
+            keyword_name="Run AI Test",
             objective=objective,
             high_level_steps=high_level_steps,
         )
@@ -1426,7 +1460,7 @@ class AIAgentic:
             allow_browser_termination=allow_browser_termination,
         )
 
-        rf_logger.info(f"Starting agentic test: mode={mode}, max_iterations={iters}")
+        rf_logger.info(f"Starting AI test: mode={mode}, max_iterations={iters}")
         rf_logger.info(f"Objective: {objective}")
         rf_logger.info(f"App context: {app_context}")
         if high_level_steps:
@@ -1449,13 +1483,13 @@ class AIAgentic:
             failure_detail = self._detect_failure_in_result(result)
             if failure_detail:
                 error = AssertionError(failure_detail)
-                error_msg = f"Agentic report indicated failure: {failure_detail}"
+                error_msg = f"AI report indicated failure: {failure_detail}"
                 rf_logger.error(error_msg)
             else:
-                rf_logger.info("Agentic test completed successfully")
+                rf_logger.info("AI test completed successfully")
         except Exception as exc:
             error = exc
-            error_msg = f"Agentic test failed: {type(exc).__name__}: {exc}"
+            error_msg = f"AI test failed: {type(exc).__name__}: {exc}"
             rf_logger.error(error_msg)
         finally:
             try:
@@ -1467,12 +1501,12 @@ class AIAgentic:
         if error:
             raise AssertionError(error_msg)
         if session.status == SessionStatus.FAILED:
-            failure_detail = session.errors[-1] if session.errors else "Agentic test failed"
+            failure_detail = session.errors[-1] if session.errors else "AI test failed"
             raise AssertionError(failure_detail)
         return result
 
-    @keyword
-    def run_agentic_exploration(
+    @keyword("Run AI Exploration")
+    def run_ai_exploration(
         self,
         app_context: str,
         focus_areas: str = None,
@@ -1481,7 +1515,7 @@ class AIAgentic:
     ) -> str:
         """Runs exploratory testing against the current application context.
 
-        Unlike `Run Agentic Test`, this keyword does not require predefined
+        Unlike `Run AI Test`, this keyword does not require predefined
         numbered steps. The agent explores the application directly, focusing on
         important flows and risk areas supplied in ``focus_areas``.
 
@@ -1507,12 +1541,12 @@ class AIAgentic:
         - Fails if the AI returns a clearly failed final status.
 
         Examples:
-        | ${status}= | Run Agentic Exploration |
+        | ${status}= | Run AI Exploration |
         | ... | app_context=E-commerce site with active browser session |
         | ... | focus_areas=navigation, filtering, cart operations |
         | Log | ${status} |
 
-        | ${status}= | Run Agentic Exploration |
+        | ${status}= | Run AI Exploration |
         | ... | app_context=Android banking app on dashboard screen |
         | ... | focus_areas=payments, settings, notification permissions |
         | ... | max_iterations=80 |
@@ -1582,8 +1616,8 @@ class AIAgentic:
             raise AssertionError(failure_detail)
         return result
 
-    @keyword
-    def run_agentic_api_test(
+    @keyword("Run AI API Test")
+    def run_ai_api_test(
         self,
         test_objective: str,
         base_url: str = None,
@@ -1620,7 +1654,7 @@ class AIAgentic:
         - Fails if user-defined steps are not completed successfully.
 
         Examples:
-        | ${status}= | Run Agentic API Test |
+        | ${status}= | Run AI API Test |
         | ... | test_objective=Validate order CRUD operations and auth failures |
         | ... | base_url=https://api.example.com |
         | ... | api_spec_url=https://api.example.com/openapi.json |
@@ -1630,7 +1664,7 @@ class AIAgentic:
         | ... | 1. Create a user via POST /users |
         | ... | 2. Fetch that user via GET /users/{id} |
         | ... | 3. Delete the user via DELETE /users/{id} |
-        | ${status}= | Run Agentic API Test |
+        | ${status}= | Run AI API Test |
         | ... | test_objective=Exercise the user lifecycle endpoints |
         | ... | base_url=https://api.example.com |
         | ... | test_steps=${TEST_STEPS} | max_iterations=25 |
@@ -1643,7 +1677,7 @@ class AIAgentic:
         )
         self._log_implicit_test_steps_source(test_steps, steps_source)
         self._ensure_objective_or_steps_present(
-            keyword_name="Run Agentic API Test",
+            keyword_name="Run AI API Test",
             objective=objective,
             high_level_steps=high_level_steps,
         )
@@ -1679,7 +1713,7 @@ class AIAgentic:
             allow_browser_termination=allow_browser_termination,
         )
 
-        rf_logger.info(f"Starting agentic API test: {app_context}")
+        rf_logger.info(f"Starting AI API test: {app_context}")
         if high_level_steps:
             self._log_user_defined_steps(high_level_steps)
 
@@ -1697,13 +1731,13 @@ class AIAgentic:
             failure_detail = self._detect_failure_in_result(result)
             if failure_detail:
                 error = AssertionError(failure_detail)
-                error_msg = f"Agentic API report indicated failure: {failure_detail}"
+                error_msg = f"AI API report indicated failure: {failure_detail}"
                 rf_logger.error(error_msg)
             else:
-                rf_logger.info("Agentic API test completed successfully")
+                rf_logger.info("AI API test completed successfully")
         except Exception as exc:
             error = exc
-            error_msg = f"Agentic API test failed: {type(exc).__name__}: {exc}"
+            error_msg = f"AI API test failed: {type(exc).__name__}: {exc}"
             rf_logger.error(error_msg)
         finally:
             try:
@@ -1715,12 +1749,12 @@ class AIAgentic:
         if error:
             raise AssertionError(error_msg)
         if session.status == SessionStatus.FAILED:
-            failure_detail = session.errors[-1] if session.errors else "Agentic API test failed"
+            failure_detail = session.errors[-1] if session.errors else "AI API test failed"
             raise AssertionError(failure_detail)
         return result
 
-    @keyword
-    def run_agentic_mobile_test(
+    @keyword("Run AI Mobile Test")
+    def run_ai_mobile_test(
         self,
         test_objective: str,
         app_context: str = "",
@@ -1758,7 +1792,7 @@ class AIAgentic:
         - Fails if user-defined steps are not completed successfully.
 
         Examples:
-        | ${status}= | Run Agentic Mobile Test |
+        | ${status}= | Run AI Mobile Test |
         | ... | test_objective=Validate onboarding and dashboard access |
         | ... | app_context=Android banking app with existing Appium session |
         | Log | ${status} |
@@ -1767,7 +1801,7 @@ class AIAgentic:
         | ... | 1. Complete the onboarding flow |
         | ... | 2. Accept notification permission if it appears |
         | ... | 3. Verify the main dashboard is visible |
-        | ${status}= | Run Agentic Mobile Test |
+        | ${status}= | Run AI Mobile Test |
         | ... | test_objective=Smoke test first-run experience |
         | ... | app_context=Fresh Android install |
         | ... | test_steps=${TEST_STEPS} | max_iterations=40 |
@@ -1780,7 +1814,7 @@ class AIAgentic:
         )
         self._log_implicit_test_steps_source(test_steps, steps_source)
         self._ensure_objective_or_steps_present(
-            keyword_name="Run Agentic Mobile Test",
+            keyword_name="Run AI Mobile Test",
             objective=objective,
             high_level_steps=high_level_steps,
         )
@@ -1796,7 +1830,7 @@ class AIAgentic:
             app_context,
         )
 
-        rf_logger.info("Starting agentic mobile test")
+        rf_logger.info("Starting AI mobile test")
 
         start_state, reuse_existing_session = self._resolve_start_state_and_reuse("mobile")
         scroll_flag = self._coerce_bool(scroll_into_view, default=True)
@@ -1832,13 +1866,13 @@ class AIAgentic:
             failure_detail = self._detect_failure_in_result(result)
             if failure_detail:
                 error = AssertionError(failure_detail)
-                error_msg = f"Agentic mobile report indicated failure: {failure_detail}"
+                error_msg = f"AI mobile report indicated failure: {failure_detail}"
                 rf_logger.error(error_msg)
             else:
-                rf_logger.info("Agentic mobile test completed successfully")
+                rf_logger.info("AI mobile test completed successfully")
         except Exception as exc:
             error = exc
-            error_msg = f"Agentic mobile test failed: {type(exc).__name__}: {exc}"
+            error_msg = f"AI mobile test failed: {type(exc).__name__}: {exc}"
             rf_logger.error(error_msg)
         finally:
             try:
@@ -1850,13 +1884,13 @@ class AIAgentic:
         if error:
             raise AssertionError(error_msg)
         if session.status == SessionStatus.FAILED:
-            failure_detail = session.errors[-1] if session.errors else "Agentic mobile test failed"
+            failure_detail = session.errors[-1] if session.errors else "AI mobile test failed"
             raise AssertionError(failure_detail)
         return result
 
-    @keyword
-    def get_agentic_platform_info(self) -> str:
-        """Returns the current AIAgentic platform configuration summary.
+    @keyword("Get AI Platform Info")
+    def get_ai_platform_info(self) -> str:
+        """Returns the current AITester platform configuration summary.
 
         The returned text is useful for debugging library imports, verifying the
         selected model, or logging execution metadata at the start of a suite.
@@ -1866,10 +1900,10 @@ class AIAgentic:
           default test mode, max iterations, and verbosity flag.
 
         Examples:
-        | ${info}= | Get Agentic Platform Info |
+        | ${info}= | Get AI Platform Info |
         | Log | ${info} |
 
-        | ${info}= | Get Agentic Platform Info |
+        | ${info}= | Get AI Platform Info |
         | Should Contain | ${info} | Platform: OpenAI |
         """
         model_name = self.model or self.platform.value["default_model"]

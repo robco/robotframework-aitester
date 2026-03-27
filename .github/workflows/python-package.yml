@@ -22,7 +22,7 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Detect changes in AIAgentic/library.py
+      - name: Detect changes in AITester/library.py
         id: detect
         shell: bash
         run: |
@@ -45,7 +45,7 @@ jobs:
             base="$(git hash-object -t tree /dev/null)"
           fi
 
-          if git diff --name-only "$base" "$head" | grep -qx 'AIAgentic/library.py'; then
+          if git diff --name-only "$base" "$head" | grep -qx 'AITester/library.py'; then
             echo "library_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "library_changed=false" >> "$GITHUB_OUTPUT"
@@ -68,7 +68,7 @@ jobs:
           pip install flake8
 
       - name: Run flake8
-        run: flake8 AIAgentic/ --count --show-source --statistics
+        run: flake8 AITester/ --count --show-source --statistics
 
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -159,7 +159,7 @@ jobs:
       - name: Generate Robot Framework libdoc
         run: |
           mkdir -p docs
-          python -m robot.libdoc AIAgentic docs/index.html
+          python -m robot.libdoc AITester docs/index.html
 
       - name: Commit updated libdoc
         if: github.event_name != 'pull_request'

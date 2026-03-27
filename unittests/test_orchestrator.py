@@ -1,6 +1,6 @@
 """Unit tests for orchestrator fast-path behavior."""
 
-from AIAgentic.orchestrator import AgentOrchestrator
+from AITester.orchestrator import AgentOrchestrator
 
 
 class FakeAgent:
@@ -33,9 +33,9 @@ class FakeAgent:
 
 def build_orchestrator(monkeypatch, available_libraries):
     FakeAgent.instances = []
-    monkeypatch.setattr("AIAgentic.orchestrator.Agent", FakeAgent)
+    monkeypatch.setattr("AITester.orchestrator.Agent", FakeAgent)
     monkeypatch.setattr(
-        "AIAgentic.orchestrator.SlidingWindowConversationManager",
+        "AITester.orchestrator.SlidingWindowConversationManager",
         lambda window_size: {"window_size": window_size},
     )
     return AgentOrchestrator(model=object(), available_libraries=available_libraries)
@@ -92,10 +92,12 @@ def test_run_skips_planner_for_user_defined_steps(monkeypatch):
     assert "User-defined Main Flow:" in executor.calls[0]
     assert "1. Open login" in executor.calls[0]
     assert "selenium_handle_common_blockers" in executor.calls[0]
+    assert "get_frame_inventory" in executor.calls[0]
     assert "Treat user-provided steps as ordered intent checkpoints" in executor.calls[0]
     assert "reach pages by clicking visible links" in executor.calls[0]
     assert "unless the user explicitly instructs a concrete URL to open" in executor.calls[0]
     assert "Do not close or restart the browser as a recovery step" in executor.calls[0]
+    assert "switch into the most likely iframe with `selenium_select_frame`" in executor.calls[0]
 
 
 def test_run_extracts_numbered_steps_from_objective(monkeypatch):
@@ -164,3 +166,4 @@ def test_run_exploration_uses_direct_executor(monkeypatch):
     assert len(supervisor.calls) == 0
     assert "Focus Areas: checkout" in executor.calls[0]
     assert "get_page_snapshot" in executor.calls[0]
+    assert "get_frame_inventory" in executor.calls[0]

@@ -1,11 +1,11 @@
 *** Settings ***
-Documentation     Example: AI Agentic Mobile App Testing with AppiumLibrary
+Documentation     Example: AI Mobile App Testing with AITester
 ...
-...               This test demonstrates how to use the AIAgentic library
+...               This test demonstrates how to use the AITester library
 ...               to autonomously test a mobile application. The AI agent
 ...               designs mobile test scenarios, performs touch interactions,
 ...               and logs results into the built-in Robot Framework report.
-...               The app is opened in Suite Setup; AIAgentic will reuse the
+...               The app is opened in Suite Setup; AITester will reuse the
 ...               existing session and will not open a new one.
 ...
 ...               Prerequisites:
@@ -15,7 +15,7 @@ Documentation     Example: AI Agentic Mobile App Testing with AppiumLibrary
 ...               - Target mobile application APK/IPA available
 
 Library           AppiumLibrary
-Library           AIAgentic    platform=OpenAI    model=gpt-4o    test_mode=mobile
+Library           AITester    platform=OpenAI    model=gpt-4o    test_mode=mobile
 
 Suite Setup       Open Application    ${APPIUM_URL}
 ...               platformName=${PLATFORM_NAME}
@@ -33,43 +33,43 @@ ${APP_PATH}           ${CURDIR}/../../app/sample.apk
 
 
 *** Test Cases ***
-Agentic Mobile Onboarding Test
+AI Mobile Onboarding Test
     [Documentation]    AI agent autonomously tests the app onboarding flow.
-    [Tags]    agentic    mobile    onboarding
+    [Tags]    aitester    mobile    onboarding
     ${TEST_STEPS}=    Set Variable
     ...    Test Steps:
     ...    1. Complete the welcome/onboarding screens
     ...    2. Verify content is displayed on each screen
     ...    3. Finish onboarding and verify arrival at main screen
-    ${status}=    Run Agentic Mobile Test
+    ${status}=    Run AI Mobile Test
     ...    test_objective=Test the onboarding/welcome screens. Swipe through each screen, verify content is displayed, tap Skip or Next buttons, and verify arrival at the main screen or login page.
     ...    app_context=Android application with multi-step onboarding wizard
     ...    test_steps=${TEST_STEPS}
     ...    max_iterations=30
     Log    ${status}
 
-Agentic Mobile Navigation Test
+AI Mobile Navigation Test
     [Documentation]    AI agent explores the app navigation structure.
-    [Tags]    agentic    mobile    navigation
-    ${status}=    Run Agentic Mobile Test
+    [Tags]    aitester    mobile    navigation
+    ${status}=    Run AI Mobile Test
     ...    test_objective=Explore the main navigation of the app. Test bottom navigation tabs (if present), hamburger menu, back button behavior, and deep navigation paths. Verify each screen loads correctly without crashes.
     ...    app_context=Android application with standard navigation patterns
     ...    max_iterations=40
     Log    ${status}
 
-Agentic Mobile Form Input Test
+AI Mobile Form Input Test
     [Documentation]    AI agent tests mobile form interactions.
-    [Tags]    agentic    mobile    forms
-    ${status}=    Run Agentic Mobile Test
+    [Tags]    aitester    mobile    forms
+    ${status}=    Run AI Mobile Test
     ...    test_objective=Find and test form inputs in the app. Test text fields (verify keyboard appears), dropdowns/spinners, checkboxes, toggles, and date pickers. Verify form submission and validation messages.
     ...    app_context=Android application with registration or settings forms
     ...    max_iterations=35
     Log    ${status}
 
-Agentic Mobile Gesture Test
+AI Mobile Gesture Test
     [Documentation]    AI agent tests gesture-based interactions.
-    [Tags]    agentic    mobile    gestures
-    ${status}=    Run Agentic Mobile Test
+    [Tags]    aitester    mobile    gestures
+    ${status}=    Run AI Mobile Test
     ...    test_objective=Test gesture interactions: scroll through lists (verify new content loads), pull-to-refresh (verify content updates), swipe actions on list items (verify swipe actions like delete or archive), and long-press actions.
     ...    app_context=Android application with scrollable lists and gesture support
     ...    max_iterations=30

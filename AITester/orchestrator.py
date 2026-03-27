@@ -336,6 +336,14 @@ class AgentOrchestrator:
                 "the browser as a recovery step unless the user explicitly "
                 "requested that action."
             )
+            rules.append(
+                "9. If expected controls are missing from the current document, "
+                "inspect `get_frame_inventory` or the frame section of "
+                "`get_page_snapshot`, switch into the most likely iframe with "
+                "`selenium_select_frame`, re-check page state inside that frame, "
+                "and use `selenium_unselect_frame` before returning to top-level "
+                "content or trying a different frame."
+            )
         elif mode == "mobile":
             rules.append(
                 "6. When the current screen is unclear, inspect it with "

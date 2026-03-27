@@ -15,7 +15,7 @@
 # limitations under the License.
 
 """
-AI platform configuration for robotframework-aiagentic.
+AI platform configuration for robotframework-aitester.
 
 Defines supported AI platforms and their connection parameters,
 including default models, API key environment variables, and

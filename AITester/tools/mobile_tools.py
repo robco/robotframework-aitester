@@ -26,7 +26,7 @@ def _get_appium():
     bi = BuiltIn()
     lib_name = "AppiumLibrary"
     try:
-        override = bi.get_variable_value("${AIAGENTIC_APPIUM_LIBRARY}")
+        override = bi.get_variable_value("${AITESTER_APPIUM_LIBRARY}")
         if override:
             lib_name = override
     except RobotNotRunningError:
@@ -37,7 +37,7 @@ def _get_appium():
         raise RuntimeError(
             f"AppiumLibrary instance '{lib_name}' not found. "
             "Ensure AppiumLibrary is imported or set appium_library "
-            "when importing AIAgentic."
+            "when importing AITester."
         ) from exc
 
 

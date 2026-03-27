@@ -8,8 +8,8 @@ import shutil
 import pytest
 from strands import tool
 
-from AIAgentic.executor import StepStatus, create_session, set_active_session
-from AIAgentic.tools import browser_analysis_tools, common_tools, mobile_tools
+from AITester.executor import StepStatus, create_session, set_active_session
+from AITester.tools import browser_analysis_tools, common_tools, mobile_tools
 
 
 @pytest.fixture
@@ -166,7 +166,7 @@ def test_record_tool_step_invalidates_browser_snapshot_cache(monkeypatch):
         "invalidate_page_snapshot_cache",
         lambda driver=None: invalidations.append(driver),
     )
-    monkeypatch.setattr(common_tools, "_log_agentic_step_to_rf", lambda **kwargs: None)
+    monkeypatch.setattr(common_tools, "_log_ai_step_to_rf", lambda **kwargs: None)
 
     common_tools._record_tool_step(
         action="selenium_click_element",
@@ -185,7 +185,7 @@ def test_record_tool_step_invalidates_mobile_snapshot_cache(monkeypatch):
         "invalidate_mobile_snapshot_cache",
         lambda driver=None: invalidations.append(driver),
     )
-    monkeypatch.setattr(common_tools, "_log_agentic_step_to_rf", lambda **kwargs: None)
+    monkeypatch.setattr(common_tools, "_log_ai_step_to_rf", lambda **kwargs: None)
 
     common_tools._record_tool_step(
         action="appium_click_element",
@@ -206,6 +206,20 @@ def test_track_ui_action_counts_mobile_swipe_and_state_checks():
 
     assert session.ui_interactions_total == 1
     assert session.ui_state_checks_total == 2
+
+
+def test_track_ui_action_counts_web_select_option_as_interaction():
+    session = create_session(
+        "test",
+        "app",
+        test_mode="web",
+        high_level_steps=["Select country"],
+    )
+
+    common_tools._track_ui_action(session, "selenium_select_option", StepStatus.PASSED)
+
+    assert session.ui_interactions_total == 1
+    assert session.ui_state_checks_total == 0
 
 
 def test_ensure_screenshot_in_output_dir_reuses_cached_copy(tmp_path, monkeypatch):
