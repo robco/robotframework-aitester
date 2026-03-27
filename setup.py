@@ -62,7 +62,7 @@ setup(
     extras_require={
         "web": ["robotframework-seleniumlibrary>=7.0"],
         "api": ["robotframework-requests>=0.9"],
-        "mobile": ["robotframework-appiumlibrary>=2.0"],
+        "mobile": ["robotframework-appiumlibrary>=3.0"],
         "all": [
             "robotframework-seleniumlibrary>=6.8.0",
             "robotframework-requests>=0.9",
@@ -77,19 +77,5 @@ setup(
             "pytest-mock>=3.0",
             "flake8",
         ],
-    },
-    classifiers=[
-        "Framework :: Robot Framework",
-        "Framework :: Robot Framework :: Library",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: 3.12",
-        "Programming Language :: Python :: 3.13",
-        "License :: OSI Approved :: Apache Software License",
-        "Topic :: Software Development :: Testing",
-        "Topic :: Software Development :: Quality Assurance",
-        "Intended Audience :: Developers",
-        "Operating System :: OS Independent",
-    ],
+    }
 )
