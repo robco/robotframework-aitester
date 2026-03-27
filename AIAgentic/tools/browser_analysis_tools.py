@@ -105,7 +105,12 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
 
     function isVisible(element) {
         const rect = element.getBoundingClientRect();
-        const style = window.getComputedStyle(element);
+        const ownerWindow = (
+            element &&
+            element.ownerDocument &&
+            element.ownerDocument.defaultView
+        ) ? element.ownerDocument.defaultView : window;
+        const style = ownerWindow.getComputedStyle(element);
         return rect.width > 0 && rect.height > 0 &&
             style.display !== 'none' &&
             style.visibility !== 'hidden';
@@ -219,6 +224,131 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         return actions;
     }
 
+    function collectHeadingsFromDocument(doc, limit) {
+        const headings = [];
+        doc.querySelectorAll('h1, h2, h3').forEach((heading, index) => {
+            if (index >= limit) return;
+            const text = safeText(heading.textContent, 100);
+            if (text) {
+                headings.push({ level: heading.tagName, text: text });
+            }
+        });
+        return headings;
+    }
+
+    function countInteractiveElements(doc, limit) {
+        const seen = new Set();
+        let count = 0;
+        const selectors = [
+            'a[href]',
+            'button',
+            'input',
+            'select',
+            'textarea',
+            '[role="button"]',
+            '[role="link"]',
+            '[role="tab"]',
+            '[role="menuitem"]',
+            '[onclick]',
+            '[tabindex]',
+        ];
+        selectors.forEach(selector => {
+            doc.querySelectorAll(selector).forEach(element => {
+                if (count >= limit || seen.has(element) || !isVisible(element)) {
+                    return;
+                }
+                seen.add(element);
+                count += 1;
+            });
+        });
+        return count;
+    }
+
+    function summarizeFrameDocument(frameElement) {
+        const info = {
+            same_origin_accessible: false,
+            document_title: null,
+            document_url: null,
+            text_preview: null,
+            interactive_elements: 0,
+            forms: 0,
+            headings: [],
+            child_frames: 0,
+            access_error: null,
+        };
+
+        try {
+            const frameWindow = frameElement.contentWindow || null;
+            const frameDocument = frameElement.contentDocument || (
+                frameWindow ? frameWindow.document : null
+            );
+            if (!frameDocument) {
+                info.access_error = 'frame document unavailable';
+                return info;
+            }
+            info.same_origin_accessible = true;
+            info.document_title = frameDocument.title || 'Untitled';
+            try {
+                info.document_url = frameWindow && frameWindow.location
+                    ? String(frameWindow.location.href || '')
+                    : null;
+            } catch (locationError) {
+                info.document_url = null;
+            }
+            info.text_preview = safeText(
+                frameDocument.body ? frameDocument.body.innerText : '',
+                180
+            ) || null;
+            info.interactive_elements = countInteractiveElements(frameDocument, 200);
+            info.forms = frameDocument.querySelectorAll('form').length;
+            info.headings = collectHeadingsFromDocument(frameDocument, 5);
+            info.child_frames = frameDocument.querySelectorAll('iframe, frame').length;
+            return info;
+        } catch (error) {
+            info.access_error = 'cross-origin or inaccessible';
+            return info;
+        }
+    }
+
+    function collectFrameInventory(doc, frames, depth, pathPrefix) {
+        const frameNodes = Array.from(doc.querySelectorAll('iframe, frame'));
+        frameNodes.forEach((frameElement, index) => {
+            if (frames.length >= 25) return;
+            const path = pathPrefix ? pathPrefix + '.' + (index + 1) : String(index + 1);
+            const frameInfo = {
+                path: path,
+                depth: depth,
+                tag: frameElement.tagName.toLowerCase(),
+                locator: getLocator(frameElement),
+                id: frameElement.id || null,
+                name: frameElement.getAttribute('name') || null,
+                title: frameElement.getAttribute('title') || null,
+                src: frameElement.getAttribute('src') || null,
+                visible: isVisible(frameElement),
+            };
+            const summary = summarizeFrameDocument(frameElement);
+            Object.assign(frameInfo, summary);
+            frames.push(frameInfo);
+
+            if (
+                frameInfo.same_origin_accessible &&
+                depth < 2 &&
+                frameInfo.child_frames > 0
+            ) {
+                try {
+                    collectFrameInventory(
+                        frameElement.contentDocument,
+                        frames,
+                        depth + 1,
+                        path
+                    );
+                } catch (nestedError) {
+                    frameInfo.access_error = frameInfo.access_error || 'nested frame inspection failed';
+                }
+            }
+        });
+    }
+
     const snapshot = {
         title: document.title || 'Untitled',
         url: window.location.href,
@@ -229,6 +359,7 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         nav_items: [],
         main_sections: [],
         links: [],
+        frames: [],
         possible_blockers: [],
         browser_errors: [],
     };
@@ -320,6 +451,8 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         }
     });
 
+    collectFrameInventory(document, snapshot.frames, 0, '');
+
     const blockerSelectors = [
         'dialog',
         '[role="dialog"]',
@@ -377,6 +510,7 @@ def _empty_page_snapshot() -> Dict[str, Any]:
         "nav_items": [],
         "main_sections": [],
         "links": [],
+        "frames": [],
         "possible_blockers": [],
         "browser_errors": [],
     }
@@ -443,6 +577,19 @@ def _format_page_structure(snapshot: Dict[str, Any]) -> str:
     lines.append(f"\nNavigation ({len(snapshot.get('nav_items', []))}):")
     for nav_item in snapshot.get("nav_items", [])[:20]:
         lines.append(f"  {nav_item['text']} → {nav_item['href']}")
+    frames = snapshot.get("frames", [])
+    lines.append(f"\nFrames ({len(frames)}):")
+    if frames:
+        for frame in frames[:10]:
+            locator = frame.get("locator") or "no-locator"
+            status = "same-origin" if frame.get("same_origin_accessible") else "cross-origin/inaccessible"
+            label_parts = [f"path={frame.get('path', '?')}", f"locator={locator}", status]
+            title = frame.get("title") or frame.get("document_title")
+            if title:
+                label_parts.append(f'title="{title[:50]}"')
+            lines.append("  " + ", ".join(label_parts))
+    else:
+        lines.append("  none")
     return "\n".join(lines)
 
 
@@ -460,6 +607,59 @@ def _format_possible_blockers(blockers) -> list[str]:
             f"{blocker.get('preview', '')[:80]} "
             f"(actions: {action_labels})"
         )
+    return lines
+
+
+def _format_frames(frames) -> list[str]:
+    if not frames:
+        return ["Frames: none detected"]
+    lines = [f"Frames ({len(frames)}):"]
+    for frame in frames[:25]:
+        locator = frame.get("locator") or "no-locator"
+        status = "same-origin" if frame.get("same_origin_accessible") else "cross-origin/inaccessible"
+        primary = [
+            f"path={frame.get('path', '?')}",
+            f"depth={frame.get('depth', 0)}",
+            f"locator={locator}",
+            status,
+        ]
+        frame_id = frame.get("id")
+        frame_name = frame.get("name")
+        frame_title = frame.get("title") or frame.get("document_title")
+        frame_src = frame.get("src") or frame.get("document_url")
+        if frame_id:
+            primary.append(f"id={frame_id}")
+        if frame_name:
+            primary.append(f"name={frame_name}")
+        if frame_title:
+            primary.append(f'title="{frame_title[:50]}"')
+        if frame_src:
+            primary.append(f"src={frame_src[:80]}")
+        lines.append("  - " + ", ".join(primary))
+
+        secondary = []
+        if frame.get("same_origin_accessible"):
+            secondary.append(
+                f"interactive={int(frame.get('interactive_elements', 0))}"
+            )
+            secondary.append(f"forms={int(frame.get('forms', 0))}")
+            secondary.append(f"child_frames={int(frame.get('child_frames', 0))}")
+            headings = frame.get("headings", [])
+            if headings:
+                secondary.append(
+                    "headings=" + ", ".join(
+                        heading.get("text", "")[:30] for heading in headings[:3] if heading.get("text")
+                    )
+                )
+            text_preview = frame.get("text_preview")
+            if text_preview:
+                secondary.append(f'text="{text_preview[:80]}"')
+        else:
+            access_error = frame.get("access_error")
+            if access_error:
+                secondary.append(access_error)
+        if secondary:
+            lines.append("    " + " | ".join(secondary))
     return lines
 
 
@@ -487,6 +687,7 @@ def get_page_snapshot(refresh: bool = False) -> str:
         f"Interactive elements: {len(snapshot.get('interactive_elements', []))}",
         f"Forms: {len(snapshot.get('forms', []))}",
         f"Links: {len(snapshot.get('links', []))}",
+        f"Frames: {len(snapshot.get('frames', []))}",
         "",
         "Headings:",
     ]
@@ -499,6 +700,8 @@ def get_page_snapshot(refresh: bool = False) -> str:
     lines.append("")
     lines.append("Text preview:")
     lines.append(snapshot.get("text", "")[:500] or "<empty>")
+    lines.append("")
+    lines.extend(_format_frames(snapshot.get("frames", [])[:5]))
     lines.append("")
     lines.extend(_format_possible_blockers(snapshot.get("possible_blockers", [])))
     return "\n".join(lines)
@@ -576,6 +779,17 @@ def get_all_links() -> str:
     for index, link in enumerate(links, 1):
         lines.append(f"  {index}. [{link['text']}] → {link['href']}")
     return "\n".join(lines)
+
+
+@tool
+def get_frame_inventory(refresh: bool = False) -> str:
+    """Gets an inventory of iframe/frame contexts on the current page.
+
+    Returns visible locator information plus same-origin summaries when
+    the frame document is accessible from the current browsing context.
+    """
+    snapshot = _get_page_snapshot_data(force_refresh=bool(refresh))
+    return "\n".join(_format_frames(snapshot.get("frames", [])))
 
 
 @tool
@@ -664,6 +878,7 @@ BROWSER_ANALYSIS_TOOLS = instrument_tool_list([
     get_page_text_content,
     get_element_count,
     get_all_links,
+    get_frame_inventory,
     get_form_fields,
     check_page_errors,
 ])

@@ -62,6 +62,43 @@ def sample_snapshot():
         "nav_items": [{"text": "Home", "href": "https://example.test/home"}],
         "main_sections": [{"tag": "main", "preview": "Hello"}],
         "links": [{"text": "Home", "href": "https://example.test/home"}],
+        "frames": [
+            {
+                "path": "1",
+                "depth": 0,
+                "locator": "id=checkout-frame",
+                "id": "checkout-frame",
+                "name": "checkout",
+                "title": "Checkout",
+                "src": "/frames/checkout",
+                "same_origin_accessible": True,
+                "document_title": "Checkout Widget",
+                "document_url": "https://example.test/frames/checkout",
+                "text_preview": "Card number Expiry Submit order",
+                "interactive_elements": 3,
+                "forms": 1,
+                "child_frames": 0,
+                "headings": [{"level": "H2", "text": "Payment"}],
+            },
+            {
+                "path": "2",
+                "depth": 0,
+                "locator": "xpath=//html[1]/body[1]/iframe[2]",
+                "id": None,
+                "name": "ads",
+                "title": "Ads",
+                "src": "https://ads.example.test/widget",
+                "same_origin_accessible": False,
+                "document_title": None,
+                "document_url": None,
+                "text_preview": None,
+                "interactive_elements": 0,
+                "forms": 0,
+                "child_frames": 0,
+                "headings": [],
+                "access_error": "cross-origin or inaccessible",
+            },
+        ],
         "possible_blockers": [
             {
                 "category": "cookie/consent",
@@ -95,9 +132,11 @@ def test_browser_analysis_tools_share_cached_snapshot(monkeypatch):
     text = browser_analysis_tools.get_page_text_content()
 
     assert "Page: Example" in snapshot
+    assert "Frames: 2" in snapshot
     assert "Possible blockers (1)" in snapshot
     assert "Found 1 interactive elements" in interactive
     assert "Headings (1)" in structure
+    assert "Frames (2)" in structure
     assert "Hello world" in text
     assert driver.execute_script_calls == 1
 
@@ -152,3 +191,21 @@ def test_browser_analysis_tools_fallback_to_minimal_snapshot(monkeypatch):
     assert "Page: Fallback Example" in structure
     assert "Recovered text" in text
     assert len(driver.execute_script_calls) == 2
+
+
+def test_get_frame_inventory_uses_snapshot_frame_metadata(monkeypatch):
+    browser_analysis_tools.invalidate_page_snapshot_cache()
+    driver = DummyDriver(sample_snapshot())
+    monkeypatch.setattr(
+        browser_analysis_tools,
+        "_get_selenium",
+        lambda: DummySelenium(driver),
+    )
+
+    inventory = browser_analysis_tools.get_frame_inventory()
+
+    assert "Frames (2)" in inventory
+    assert "locator=id=checkout-frame" in inventory
+    assert "same-origin" in inventory
+    assert "cross-origin or inaccessible" in inventory
+    assert driver.execute_script_calls == 1

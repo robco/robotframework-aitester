@@ -75,6 +75,7 @@ WEB_UI_STATE_ACTIONS = {
     "get_interactive_elements",
     "get_page_text_content",
     "get_all_links",
+    "get_frame_inventory",
     "get_form_fields",
     "check_page_errors",
 }

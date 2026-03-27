@@ -46,6 +46,11 @@ Tool usage:
 - Use `selenium_element_should_be_visible` to check element presence
 - Use `selenium_get_text` to retrieve element text
 - Prefer `get_page_snapshot` for page analysis instead of chaining multiple analysis tools
+- When the page contains multiple iframes, use `get_frame_inventory` or the frame section of
+  `get_page_snapshot` to identify the likely target frame before interacting
+- If the target controls are inside an iframe, switch with `selenium_select_frame`,
+  inspect the frame again with `get_page_snapshot`, and switch back with
+  `selenium_unselect_frame` before trying another frame or top-level control
 - Use `selenium_handle_common_blockers` when cookie banners, consent popups, newsletter modals,
   tutorial overlays, or similar interruptions block the requested action
 - If a cookie or consent banner appears and the user did not explicitly request otherwise,
