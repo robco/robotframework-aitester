@@ -263,7 +263,10 @@ def _build_page_snapshot(driver) -> Dict[str, Any]:
         if (/(spinner|loading|loader|busy|progress|pending|skeleton|shimmer)/.test(context)) {
             signals.push('loading-related id/class/text');
         }
-        if (/(loading|please wait|fetching|processing|saving|submitting|syncing|initializing|loading more)/.test(textLower)) {
+        if (
+            /(loading|please wait|fetching|processing|saving|submitting|syncing|initializing|loading more)/
+                .test(textLower)
+        ) {
             signals.push('loading text');
         }
 
