@@ -23,7 +23,7 @@ def _get_requests():
     bi = BuiltIn()
     lib_name = "RequestsLibrary"
     try:
-        override = bi.get_variable_value("${AIAGENTIC_REQUESTS_LIBRARY}")
+        override = bi.get_variable_value("${AITESTER_REQUESTS_LIBRARY}")
         if override:
             lib_name = override
     except RobotNotRunningError:
@@ -34,7 +34,7 @@ def _get_requests():
         raise RuntimeError(
             f"RequestsLibrary instance '{lib_name}' not found. "
             "Ensure RequestsLibrary is imported or set requests_library "
-            "when importing AIAgentic."
+            "when importing AITester."
         ) from exc
 
 

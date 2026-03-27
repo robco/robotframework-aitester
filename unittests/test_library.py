@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pytest
 
-from AIAgentic.executor import create_session
-from AIAgentic.library import AIAgentic
+from AITester.executor import SessionStatus, StepStatus, TestStep, create_session
+from AITester.library import AITester
 
 
-def test_agentic_step_pass_returns_summary():
-    agentic = AIAgentic()
-    result = agentic.agentic_step(
+def test_ai_step_pass_returns_summary():
+    tester = AITester()
+    result = tester.ai_step(
         action="click",
         description="Click login",
         status="PASS",
@@ -28,10 +28,10 @@ def test_agentic_step_pass_returns_summary():
     assert result == "click - Click login (PASS)"
 
 
-def test_agentic_step_fail_raises_assertion():
-    agentic = AIAgentic()
+def test_ai_step_fail_raises_assertion():
+    tester = AITester()
     with pytest.raises(AssertionError) as exc:
-        agentic.agentic_step(
+        tester.ai_step(
             action="submit",
             description="Submit form",
             status="FAIL",
@@ -45,7 +45,7 @@ def test_libdoc_docs_render_cleanly(tmp_path):
     repo_root = Path(__file__).resolve().parents[1]
 
     subprocess.run(
-        [sys.executable, "-m", "robot.libdoc", "AIAgentic", str(output)],
+        [sys.executable, "-m", "robot.libdoc", "AITester", str(output)],
         cwd=repo_root,
         check=True,
         capture_output=True,
@@ -54,7 +54,7 @@ def test_libdoc_docs_render_cleanly(tmp_path):
 
     spec = json.loads(output.read_text())
     init_doc = spec["inits"][0]["doc"]
-    run_test_doc = next(kw["doc"] for kw in spec["keywords"] if kw["name"] == "Run Agentic Test")
+    run_test_doc = next(kw["doc"] for kw in spec["keywords"] if kw["name"] == "Run AI Test")
 
     assert "Args:" not in init_doc
     assert "<li><code>platform</code>" in init_doc
@@ -63,13 +63,13 @@ def test_libdoc_docs_render_cleanly(tmp_path):
 
 
 def test_extract_user_defined_steps_from_list_objective():
-    agentic = AIAgentic()
+    tester = AITester()
     objective = [
         "Strictly follow specified test steps.",
         "1. Click Login",
         "2. Verify dashboard is visible",
     ]
-    objective_text, steps, steps_text, steps_source = agentic._extract_user_defined_steps(
+    objective_text, steps, steps_text, steps_source = tester._extract_user_defined_steps(
         test_objective=objective,
         test_steps=None,
     )
@@ -80,7 +80,7 @@ def test_extract_user_defined_steps_from_list_objective():
 
 
 def test_validate_user_step_completion_fails_on_missing():
-    agentic = AIAgentic()
+    tester = AITester()
 
     session = create_session(
         objective="Test",
@@ -89,13 +89,43 @@ def test_validate_user_step_completion_fails_on_missing():
         max_iterations=1,
         high_level_steps=["Step A", "Step B"],
     )
-    msg = agentic._validate_user_step_completion(session)
+    msg = tester._validate_user_step_completion(session)
     assert msg is not None
     assert "No recorded actions" in msg
 
 
+def test_validate_user_step_completion_ignores_diagnostic_passes():
+    tester = AITester()
+
+    session = create_session(
+        objective="Test",
+        app_context="App",
+        test_mode="web",
+        max_iterations=1,
+        high_level_steps=["Verify order finished successfully"],
+    )
+    session.current_high_level_step = 1
+    session.current_high_level_step_description = "Verify order finished successfully"
+    session.add_step(
+        TestStep(
+            step_number=1,
+            action="get_page_snapshot",
+            description="refresh=False",
+            status=StepStatus.PASSED,
+            duration_ms=10,
+            high_level_step_number=1,
+            high_level_step_description="Verify order finished successfully",
+        )
+    )
+
+    msg = tester._validate_user_step_completion(session)
+
+    assert msg is not None
+    assert "No passed actions" in msg
+
+
 def test_validate_ui_action_coverage_allows_leave_empty_state_checks():
-    agentic = AIAgentic()
+    tester = AITester()
 
     session = create_session(
         objective="Test",
@@ -107,13 +137,13 @@ def test_validate_ui_action_coverage_allows_leave_empty_state_checks():
     session.ui_state_checks_total = 2
     session.ui_state_checks_by_step[1] = 2
 
-    msg = agentic._validate_ui_action_coverage(session)
+    msg = tester._validate_ui_action_coverage(session)
 
     assert msg is None
 
 
 def test_validate_ui_action_coverage_requires_interaction_for_action_step():
-    agentic = AIAgentic()
+    tester = AITester()
 
     session = create_session(
         objective="Test",
@@ -125,19 +155,62 @@ def test_validate_ui_action_coverage_requires_interaction_for_action_step():
     session.ui_state_checks_total = 1
     session.ui_state_checks_by_step[1] = 1
 
-    msg = agentic._validate_ui_action_coverage(session)
+    msg = tester._validate_ui_action_coverage(session)
 
     assert msg is not None
     assert "1. Click submit button" in msg
 
 
+def test_finalize_session_allows_recovered_high_level_step():
+    tester = AITester()
+
+    session = create_session(
+        objective="Test",
+        app_context="App",
+        test_mode="web",
+        max_iterations=1,
+        high_level_steps=["Verify order finished successfully"],
+    )
+    session.ui_state_checks_total = 1
+    session.ui_state_checks_by_step[1] = 1
+    session.current_high_level_step = 1
+    session.current_high_level_step_description = "Verify order finished successfully"
+    session.add_step(
+        TestStep(
+            step_number=1,
+            action="selenium_page_should_contain",
+            description="text=Objednávka byla úspěšně odeslána",
+            status=StepStatus.FAILED,
+            duration_ms=10,
+            error_message="Page should have contained text 'Objednávka byla úspěšně odeslána' but did not.",
+            high_level_step_number=1,
+            high_level_step_description="Verify order finished successfully",
+        )
+    )
+    session.add_step(
+        TestStep(
+            step_number=2,
+            action="selenium_page_should_contain",
+            description="text=Děkujeme. Úspěšně jsme přijali vaši objednávku.",
+            status=StepStatus.PASSED,
+            duration_ms=10,
+            high_level_step_number=1,
+            high_level_step_description="Verify order finished successfully",
+        )
+    )
+
+    tester._finalize_session(session)
+
+    assert session.status == SessionStatus.COMPLETED
+
+
 def test_extract_user_defined_steps_from_numbered_list():
-    agentic = AIAgentic()
+    tester = AITester()
     steps_list = [
         "1. Click button",
         "2. Verify result",
     ]
-    objective, steps, _, steps_source = agentic._extract_user_defined_steps(
+    objective, steps, _, steps_source = tester._extract_user_defined_steps(
         test_objective="Test objective",
         test_steps=steps_list,
     )
@@ -147,7 +220,7 @@ def test_extract_user_defined_steps_from_numbered_list():
 
 
 def test_extract_user_defined_steps_uses_ai_steps_variable(monkeypatch):
-    agentic = AIAgentic()
+    tester = AITester()
 
     class DummyBuiltIn:
         def get_variable_value(self, variable_name):
@@ -160,9 +233,9 @@ def test_extract_user_defined_steps_uses_ai_steps_variable(monkeypatch):
                 ]
             return None
 
-    monkeypatch.setattr("AIAgentic.library.BuiltIn", lambda: DummyBuiltIn())
+    monkeypatch.setattr("AITester.library.BuiltIn", lambda: DummyBuiltIn())
 
-    objective, steps, steps_text, steps_source = agentic._extract_user_defined_steps(
+    objective, steps, steps_text, steps_source = tester._extract_user_defined_steps(
         test_objective="",
         test_steps=None,
     )
@@ -174,7 +247,7 @@ def test_extract_user_defined_steps_uses_ai_steps_variable(monkeypatch):
 
 
 def test_extract_user_defined_steps_handles_stringified_list_steps():
-    agentic = AIAgentic()
+    tester = AITester()
 
     stringified_steps = (
         "['Execute these test steps.', "
@@ -183,7 +256,7 @@ def test_extract_user_defined_steps_handles_stringified_list_steps():
         "'2. Verify address availability']"
     )
 
-    objective, steps, steps_text, steps_source = agentic._extract_user_defined_steps(
+    objective, steps, steps_text, steps_source = tester._extract_user_defined_steps(
         test_objective="Verify address coverage",
         test_steps=stringified_steps,
     )
@@ -195,29 +268,29 @@ def test_extract_user_defined_steps_handles_stringified_list_steps():
     assert steps_text is not None
 
 
-def test_run_agentic_test_requires_objective_or_steps(monkeypatch):
-    agentic = AIAgentic()
-    monkeypatch.setattr(agentic, "_ensure_orchestrator", lambda: None)
+def test_run_ai_test_requires_objective_or_steps(monkeypatch):
+    tester = AITester()
+    monkeypatch.setattr(tester, "_ensure_orchestrator", lambda: None)
 
     with pytest.raises(ValueError, match="requires a non-empty test_objective or numbered test_steps"):
-        agentic.run_agentic_test(test_objective="")
+        tester.run_ai_test(test_objective="")
 
 
 def test_detect_failure_in_result():
-    agentic = AIAgentic()
-    assert agentic._detect_failure_in_result(
+    tester = AITester()
+    assert tester._detect_failure_in_result(
         "The test execution completed with **FAILED** status."
     )
-    assert agentic._detect_failure_in_result("Status: FAILED")
-    assert agentic._detect_failure_in_result("Test execution failed due to error")
-    assert agentic._detect_failure_in_result("completed with failed status")
-    assert agentic._detect_failure_in_result("completed successfully") is None
+    assert tester._detect_failure_in_result("Status: FAILED")
+    assert tester._detect_failure_in_result("Test execution failed due to error")
+    assert tester._detect_failure_in_result("completed with failed status")
+    assert tester._detect_failure_in_result("completed successfully") is None
 
 
 def test_extract_explicit_urls_deduplicates_user_requested_targets():
-    agentic = AIAgentic()
+    tester = AITester()
 
-    urls = agentic._extract_explicit_urls(
+    urls = tester._extract_explicit_urls(
         "Open https://example.test/login and later https://example.test/settings.",
         ["Repeat https://example.test/login", "Ignore plain text"],
     )
@@ -229,9 +302,9 @@ def test_extract_explicit_urls_deduplicates_user_requested_targets():
 
 
 def test_allows_explicit_browser_termination_for_restart_request():
-    agentic = AIAgentic()
+    tester = AITester()
 
-    allowed = agentic._allows_explicit_browser_termination(
+    allowed = tester._allows_explicit_browser_termination(
         "If page analysis gets stuck, restart the browser and continue."
     )
 
@@ -239,9 +312,9 @@ def test_allows_explicit_browser_termination_for_restart_request():
 
 
 def test_allows_explicit_browser_termination_respects_negation():
-    agentic = AIAgentic()
+    tester = AITester()
 
-    allowed = agentic._allows_explicit_browser_termination(
+    allowed = tester._allows_explicit_browser_termination(
         "Do not close the browser. Preserve the logged in session."
     )
 
@@ -249,9 +322,9 @@ def test_allows_explicit_browser_termination_respects_negation():
 
 
 def test_allows_explicit_session_termination_for_app_restart_request():
-    agentic = AIAgentic()
+    tester = AITester()
 
-    allowed = agentic._allows_explicit_session_termination(
+    allowed = tester._allows_explicit_session_termination(
         "Reset the app and relaunch it before retrying onboarding."
     )
 
@@ -259,7 +332,7 @@ def test_allows_explicit_session_termination_for_app_restart_request():
 
 
 def test_prepare_screenshot_artifact_reuses_cached_copy(tmp_path, monkeypatch):
-    agentic = AIAgentic()
+    tester = AITester()
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     output_dir = tmp_path / "output"
@@ -274,11 +347,11 @@ def test_prepare_screenshot_artifact_reuses_cached_copy(tmp_path, monkeypatch):
         copy_calls.append((src, dst))
         return original_copy2(src, dst)
 
-    monkeypatch.setattr(agentic, "_get_output_dir", lambda: str(output_dir))
-    monkeypatch.setattr("AIAgentic.library.shutil.copy2", tracking_copy2)
+    monkeypatch.setattr(tester, "_get_output_dir", lambda: str(output_dir))
+    monkeypatch.setattr("AITester.library.shutil.copy2", tracking_copy2)
 
-    first_artifact = agentic._prepare_screenshot_artifact(str(source_path))
-    second_artifact = agentic._prepare_screenshot_artifact(str(source_path))
+    first_artifact = tester._prepare_screenshot_artifact(str(source_path))
+    second_artifact = tester._prepare_screenshot_artifact(str(source_path))
 
     assert first_artifact is not None
     assert second_artifact is not None

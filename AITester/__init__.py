@@ -15,11 +15,11 @@
 # limitations under the License.
 
 """
-robotframework-aiagentic — Fully Autonomous AI Agentic Testing for Robot Framework
+robotframework-aitester — Fully Autonomous AI Testing for Robot Framework
 
 Main Robot Framework library entrypoint.
 """
 
-from .library import AIAgentic
+from .library import AITester
 
-__all__ = ["AIAgentic"]
+__all__ = ["AITester"]

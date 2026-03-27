@@ -1,6 +1,6 @@
 """Unit tests for orchestrator fast-path behavior."""
 
-from AIAgentic.orchestrator import AgentOrchestrator
+from AITester.orchestrator import AgentOrchestrator
 
 
 class FakeAgent:
@@ -33,9 +33,9 @@ class FakeAgent:
 
 def build_orchestrator(monkeypatch, available_libraries):
     FakeAgent.instances = []
-    monkeypatch.setattr("AIAgentic.orchestrator.Agent", FakeAgent)
+    monkeypatch.setattr("AITester.orchestrator.Agent", FakeAgent)
     monkeypatch.setattr(
-        "AIAgentic.orchestrator.SlidingWindowConversationManager",
+        "AITester.orchestrator.SlidingWindowConversationManager",
         lambda window_size: {"window_size": window_size},
     )
     return AgentOrchestrator(model=object(), available_libraries=available_libraries)

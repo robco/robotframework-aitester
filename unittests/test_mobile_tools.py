@@ -2,8 +2,8 @@
 
 import pytest
 
-from AIAgentic.executor import create_session, set_active_session
-from AIAgentic.tools import mobile_tools
+from AITester.executor import create_session, set_active_session
+from AITester.tools import mobile_tools
 
 
 PERMISSION_SOURCE = """

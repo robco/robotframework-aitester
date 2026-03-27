@@ -1,11 +1,11 @@
 # Apache License 2.0
 # Copyright (c) 2026 Róbert Malovec
 
-"""Unit tests for start-state detection in AIAgentic."""
+"""Unit tests for start-state detection in AITester."""
 
 import pytest
 
-from AIAgentic.library import AIAgentic
+from AITester.library import AITester
 
 
 class DummySelenium:
@@ -86,14 +86,14 @@ class DummyAppium:
 
 
 def test_web_start_state_no_library(monkeypatch):
-    agentic = AIAgentic()
+    agentic = AITester()
     monkeypatch.setattr(agentic, "_get_library_instance", lambda name: None)
     result = agentic._build_web_start_state()
     assert "No active browser session detected" in result
 
 
 def test_web_start_state_active(monkeypatch):
-    agentic = AIAgentic()
+    agentic = AITester()
     dummy = DummySelenium(browser_ids=[1], url="https://example.test", title="Example")
     monkeypatch.setattr(agentic, "_get_library_instance", lambda name: dummy)
     result = agentic._build_web_start_state()
@@ -104,14 +104,14 @@ def test_web_start_state_active(monkeypatch):
 
 
 def test_mobile_start_state_no_library(monkeypatch):
-    agentic = AIAgentic()
+    agentic = AITester()
     monkeypatch.setattr(agentic, "_get_library_instance", lambda name: None)
     result = agentic._build_mobile_start_state()
     assert "No active mobile session detected" in result
 
 
 def test_mobile_start_state_active(monkeypatch):
-    agentic = AIAgentic()
+    agentic = AITester()
     caps = {
         "platformName": "Android",
         "platformVersion": "14",
@@ -149,14 +149,14 @@ def test_mobile_start_state_active(monkeypatch):
 
 
 def test_merge_app_context_includes_start_state():
-    agentic = AIAgentic()
+    agentic = AITester()
     merged = agentic._merge_app_context("Base context", "Start State: Active")
     assert "Base context" in merged
     assert "Start State: Active" in merged
 
 
 def test_assert_active_web_session_raises_when_missing(monkeypatch):
-    agentic = AIAgentic()
+    agentic = AITester()
 
     class DummySeleniumEmpty:
         def get_browser_ids(self):
@@ -168,7 +168,7 @@ def test_assert_active_web_session_raises_when_missing(monkeypatch):
 
 
 def test_has_active_start_state():
-    agentic = AIAgentic()
+    agentic = AITester()
     assert agentic._has_active_start_state(
         "Start State: Active browser session detected."
     )
@@ -181,7 +181,7 @@ def test_has_active_start_state():
 
 
 def test_resolve_start_state_prefers_other_when_primary_inactive(monkeypatch):
-    agentic = AIAgentic()
+    agentic = AITester()
 
     def fake_build(mode):
         if mode == "web":

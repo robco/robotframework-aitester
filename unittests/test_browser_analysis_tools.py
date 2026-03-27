@@ -2,7 +2,7 @@
 
 import json
 
-from AIAgentic.tools import browser_analysis_tools
+from AITester.tools import browser_analysis_tools
 
 
 class DummyDriver:

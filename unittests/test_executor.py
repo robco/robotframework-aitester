@@ -4,7 +4,7 @@
 """Unit tests for executor module."""
 
 import time
-from AIAgentic.executor import (
+from AITester.executor import (
     TestStep,
     SessionStatus,
     StepStatus,

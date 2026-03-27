@@ -3,7 +3,7 @@
 
 """Unit tests for platforms module."""
 
-from AIAgentic.platforms import Platforms
+from AITester.platforms import Platforms
 
 
 class TestPlatforms:

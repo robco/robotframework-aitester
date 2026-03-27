@@ -6,8 +6,8 @@
 import os
 from types import SimpleNamespace
 from unittest.mock import patch
-from AIAgentic.platforms import Platforms
-from AIAgentic.genai import GenAIProvider
+from AITester.platforms import Platforms
+from AITester.genai import GenAIProvider
 
 
 class TestGenAIProvider:

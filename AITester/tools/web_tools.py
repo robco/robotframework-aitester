@@ -30,7 +30,7 @@ def _get_selenium():
     bi = BuiltIn()
     lib_name = "SeleniumLibrary"
     try:
-        override = bi.get_variable_value("${AIAGENTIC_SELENIUM_LIBRARY}")
+        override = bi.get_variable_value("${AITESTER_SELENIUM_LIBRARY}")
         if override:
             lib_name = override
     except RobotNotRunningError:
@@ -41,7 +41,7 @@ def _get_selenium():
         raise RuntimeError(
             f"SeleniumLibrary instance '{lib_name}' not found. "
             "Ensure SeleniumLibrary is imported or set selenium_library "
-            "when importing AIAgentic."
+            "when importing AITester."
         ) from exc
 
 

@@ -42,14 +42,14 @@ def readme():
 
 
 setup(
-    name="robotframework-aiagentic",
+    name="robotframework-aitester",
     version=version(),
     author="Róbert Malovec",
     author_email="robert@malovec.sk",
-    description="AI Agentic Testing library for Robot Framework",
+    description="Autonomous AI testing library for Robot Framework",
     long_description=readme(),
     long_description_content_type="text/markdown",
-    url="https://github.com/robco/robotframework-aiagentic",
+    url="https://github.com/robco/robotframework-aitester",
     packages=find_packages(),
     python_requires=">=3.9",
     install_requires=[

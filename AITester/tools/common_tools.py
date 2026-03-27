@@ -367,7 +367,7 @@ def log_step_result(step_description: str, status: str, details: str = "") -> st
 
 
 # ---------------------------------------------------------------------------
-# Agentic step recording
+# AI step recording
 # ---------------------------------------------------------------------------
 
 def _normalize_step_status(status: str) -> StepStatus:
@@ -390,7 +390,7 @@ def _coerce_float(value, default: float = 0.0) -> float:
         return default
 
 
-def _log_agentic_step_to_rf(
+def _log_ai_step_to_rf(
     action: str,
     description: str,
     status: StepStatus,
@@ -401,7 +401,7 @@ def _log_agentic_step_to_rf(
     high_level_step_number: Optional[int] = None,
     high_level_step_description: str = None,
 ) -> None:
-    """Emit an agentic step as a Robot Framework keyword entry."""
+    """Emit an AI step as a Robot Framework keyword entry."""
     try:
         bi = BuiltIn()
         normalized_screenshot_path = screenshot_path or ""
@@ -429,23 +429,23 @@ def _log_agentic_step_to_rf(
                 ]
             )
         if status in (StepStatus.FAILED, StepStatus.ERROR):
-            bi.run_keyword_and_ignore_error("Agentic Step", *args)
+            bi.run_keyword_and_ignore_error("AI Step", *args)
         else:
-            bi.run_keyword("Agentic Step", *args)
+            bi.run_keyword("AI Step", *args)
     except RobotNotRunningError:
         # Fallback when running outside RF
         rf_logger.info(
-            f"[AGENTIC STEP] {action} - {description} ({status.value})"
+            f"[AI STEP] {action} - {description} ({status.value})"
         )
     except Exception as exc:
-        logger.debug("Unable to log agentic step to RF: %s", exc)
+        logger.debug("Unable to log AI step to RF: %s", exc)
 
 
 def _log_high_level_step_to_rf(step_number: int, step_description: str) -> None:
     """Emit a high-level step marker into the RF log."""
     try:
         bi = BuiltIn()
-        bi.run_keyword("Agentic High Level Step", str(step_number), step_description or "")
+        bi.run_keyword("AI High Level Step", str(step_number), step_description or "")
     except RobotNotRunningError:
         rf_logger.info(f"[HIGH LEVEL STEP] {step_number}. {step_description}")
     except Exception as exc:
@@ -655,7 +655,7 @@ def _record_tool_step(
         _track_ui_action(session, action, status)
     _invalidate_browser_snapshot_cache(action, status)
     _invalidate_mobile_snapshot_cache(action, status)
-    _log_agentic_step_to_rf(
+    _log_ai_step_to_rf(
         action=action,
         description=description,
         status=status,
@@ -671,7 +671,7 @@ def _record_tool_step(
 def instrument_tool(tool_obj: Any) -> Any:
     if not isinstance(tool_obj, DecoratedFunctionTool):
         return tool_obj
-    if getattr(tool_obj, "_agentic_instrumented", False):
+    if getattr(tool_obj, "_ai_instrumented", False):
         return tool_obj
 
     original_func = tool_obj._tool_func
@@ -718,7 +718,7 @@ def instrument_tool(tool_obj: Any) -> Any:
             )
 
     tool_obj._tool_func = wrapped
-    tool_obj._agentic_instrumented = True
+    tool_obj._ai_instrumented = True
     return tool_obj
 
 
@@ -772,7 +772,7 @@ def record_step(
             assertion_message=assertion_message,
             error_message=error_message,
         )
-    _log_agentic_step_to_rf(
+    _log_ai_step_to_rf(
         action=action,
         description=description,
         status=step_status,
