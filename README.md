@@ -30,22 +30,22 @@ Keywords documentation can be found [here](https://robco.github.io/robotframewor
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│  Layer 1: RF Keyword Layer                                     │
-│  .robot files → AITester keywords (Run AI Test, etc.)          │
-├────────────────────────────────────────────────────────────────┤
-│  Layer 2: Agent Orchestration Layer                            │
-│  Direct Planner/Executor fast path or Supervisor fallback      │
-├────────────────────────────────────────────────────────────────┤
-│  Layer 3: Tool Bridge Layer                                    │
+┌──────────────────────────────────────────────────────────────────┐
+│  Layer 1: RF Keyword Layer                                       │
+│  .robot files → AITester keywords (Run AI Test, etc.)            │
+├──────────────────────────────────────────────────────────────────┤
+│  Layer 2: Agent Orchestration Layer                              │
+│  Direct Planner/Executor fast path or Supervisor fallback        │
+├──────────────────────────────────────────────────────────────────┤
+│  Layer 3: Tool Bridge Layer                                      │
 │  Instrumented tools (Selenium/Requests/Appium + cached analysis) │
-├────────────────────────────────────────────────────────────────┤
-│  Layer 4: AI Provider Layer                                    │
-│  Multi-provider GenAI (OpenAI, Ollama, Gemini, Anthropic, etc) │
-├────────────────────────────────────────────────────────────────┤
-│  Layer 5: Reporting & Observability Layer                      │
-│  Test results, step logs, screenshots (RF log.html/report.html) │
-└────────────────────────────────────────────────────────────────┘
+├──────────────────────────────────────────────────────────────────┤
+│  Layer 4: AI Provider Layer                                      │
+│  Multi-provider GenAI (OpenAI, Ollama, Gemini, Anthropic, etc)   │
+├──────────────────────────────────────────────────────────────────┤
+│  Layer 5: Reporting & Observability Layer                        │
+│  Test results, step logs, screenshots (RF log.html/report.html)  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ### Runtime Paths
