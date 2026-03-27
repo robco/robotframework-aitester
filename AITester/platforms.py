@@ -51,6 +51,14 @@ class Platforms(Enum):
         "supports_tool_use": True,
     }
 
+    DockerModel = {
+        "default_model": "ai/qwen3-vl:8B-Q8_K_XL",
+        "api_key_env": None,
+        "default_base_url": "http://localhost:12434/engines/v1",
+        "strands_provider": "openai",
+        "supports_tool_use": True,
+    }
+
     Gemini = {
         "default_model": "gemini-2.0-flash",
         "api_key_env": "GEMINI_API_KEY",
