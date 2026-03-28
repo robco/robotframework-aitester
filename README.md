@@ -18,9 +18,9 @@ application and the agent will plan or reuse a flow, execute it, adapt around
 common transient blockers, capture evidence, and log results into Robot
 Framework's built-in `log.html` / `report.html`.
 
-For UI modes, AITester is intentionally session-reuse oriented: your suite
+For UI modes, _AITester_ is intentionally session-reuse oriented: your suite
 opens the browser or mobile app with _SeleniumLibrary_ or _AppiumLibrary_ first,
-and AITester attaches to that existing session rather than provisioning a new
+and _AITester_ attaches to that existing session rather than provisioning a new
 one on its own.
 
 ## Feature Highlights
@@ -47,7 +47,7 @@ Keywords documentation can be found [here](https://robco.github.io/robotframewor
 - For API runs, load _RequestsLibrary_ in the suite and provide `base_url` or an already-initialized session context when relevant.
 - Install only the extras you need for the target mode and provider.
 - Set provider credentials through environment variables such as `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` when required.
-- If _SeleniumLibrary_, _RequestsLibrary_, or _AppiumLibrary_ is imported with an alias, pass the corresponding `selenium_library`, `requests_library`, or `appium_library` constructor argument so AITester can attach to the existing session.
+- If _SeleniumLibrary_, _RequestsLibrary_, or _AppiumLibrary_ is imported with an alias, pass the corresponding `selenium_library`, `requests_library`, or `appium_library` constructor argument so _AITester_ can attach to the existing session.
 
 ## Architecture
 
@@ -165,7 +165,7 @@ AI Exploratory Testing
 ```
 
 The browser opened by `Open Browser` is reused by the agent. If a session is
-already active, AITester will reuse it and refuse to open a new one.
+already active, _AITester_ will reuse it and refuse to open a new one.
 
 When numbered `test_steps` are supplied, those steps are treated as the main flow
 and executed directly in order without a separate planning handoff.
@@ -226,7 +226,7 @@ AI Mobile App Test
     [Teardown]    Close Application
 ```
 
-For mobile runs, AITester expects an active AppiumLibrary session and works best
+For mobile runs, _AITester_ expects an active AppiumLibrary session and works best
 when `app_context` and numbered `test_steps` make the target screen, account
 state, and intended path explicit. It can now wait on loading indicators, work
 through common pickers, hide the on-screen keyboard, switch hybrid contexts,
@@ -292,17 +292,17 @@ If you import _SeleniumLibrary_/_RequestsLibrary_/_AppiumLibrary_ with an alias,
 pass the corresponding `*_library` parameter so AI tools attach to the
 already-opened session.
 
-For `platform=DockerModel`, AITester automatically passes `api_key=dummy`
+For `platform=DockerModel`, _AITester_ automatically passes `api_key=dummy`
 to the OpenAI-compatible Strands client. No environment variable or
 constructor argument is required for that platform.
 
-Important: AITester can only drive sessions created by _SeleniumLibrary_/_AppiumLibrary_.
+Important: _AITester_ can only drive sessions created by _SeleniumLibrary_/_AppiumLibrary_.
 If you open a browser/app manually or through another tool, the agent will not
 be able to interact with it.
 
 ### Session Reuse (No New Browsers/Apps)
 
-If an active Selenium or Appium session is detected, AITester **reuses it**
+If an active Selenium or Appium session is detected, _AITester_ **reuses it**
 and **refuses to open a new session on a different device**. This prevents
 cases like opening a desktop browser when an Android Appium browser is already
 running. Make sure the existing session is open before calling `Run AI*`,
@@ -372,12 +372,12 @@ Additional reporting features:
 - High-level grouping when user-defined steps are supplied
 - Screenshot paths are normalized into `${OUTPUT_DIR}`, and embedded preview artifacts are cached under `${OUTPUT_DIR}/aitester-screenshots`
 - Screenshot files may use any image extension supported by the underlying library (e.g., `.png`, `.jpg`, `.jpeg`).
-- When a screenshot filename is explicitly provided for Selenium/Appium, AITester normalizes it to `.png`
+- When a screenshot filename is explicitly provided for Selenium/Appium, _AITester_ normalizes it to `.png`
   to avoid WebDriver warnings about mismatched file types.
 
 ## Browser State Analysis
 
-For web sessions, AITester now prefers a shared cached page snapshot instead of
+For web sessions, _AITester_ now prefers a shared cached page snapshot instead of
 running multiple overlapping DOM scans on every analysis step.
 
 - `get_page_snapshot` captures title, URL, text preview, forms, links, headings, interactive elements, and possible blocking overlays in one pass
@@ -386,7 +386,7 @@ running multiple overlapping DOM scans on every analysis step.
 - iframe-heavy pages are now better supported: the snapshot includes iframe/frame inventory, and `get_frame_inventory` summarizes candidate frame locators, titles, URLs, and same-origin previews so the agent can switch into the right frame before interacting
 - Successful mutating Selenium actions invalidate the cache so later analysis reflects the latest page state
 - `selenium_handle_common_blockers` uses that snapshot to clear common blockers such as cookie banners, consent popups, newsletter modals, and tutorial overlays before retrying the intended action
-- When a cookie or consent banner is detected during a web run, AITester prefers accept/allow actions so the banner disappears unless the user explicitly requested a different choice
+- When a cookie or consent banner is detected during a web run, _AITester_ prefers accept/allow actions so the banner disappears unless the user explicitly requested a different choice
 - For slow pages with loading spinners or skeleton screens, prefer condition-based waits such as
   `selenium_wait_until_page_contains`, `selenium_wait_until_page_contains_element`,
   `selenium_wait_until_element_is_not_visible`, `selenium_wait_until_page_does_not_contain`,
