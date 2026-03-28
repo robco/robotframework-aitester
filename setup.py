@@ -82,7 +82,7 @@ setup(
     ],
     install_requires=[
         "robotframework>=6.0",
-        "strands-agents[ollama,gemini]>=1.29.0",
+        "strands-agents[openai,ollama,gemini]>=1.29.0",
         "strands-agents-tools>=0.2.0",
         "openai>=2.0.0",
         "pillow>=11.0.0",
