@@ -9,10 +9,12 @@ via robotframework-appiumlibrary.
 """
 
 import logging
+import time
 import xml.etree.ElementTree as ET
 from typing import Any, Dict
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
+from robot.utils.robottime import timestr_to_secs
 
 from .common_tools import instrument_tool_list, _normalize_screenshot_filename
 from ..executor import get_active_session
@@ -650,7 +652,10 @@ def appium_background_app(seconds: int = 5) -> str:
         Confirmation message.
     """
     al = _get_appium()
-    al.background_app(seconds)
+    if hasattr(al, "background_application"):
+        al.background_application(seconds)
+    else:
+        al.background_app(seconds)
     return f"App was in background for {seconds} seconds and resumed"
 
 
@@ -665,6 +670,18 @@ def appium_reset_application() -> str:
     _assert_application_termination_allowed("appium_reset_application", al)
     al.reset_application()
     return "Application reset"
+
+
+@tool
+def appium_go_back() -> str:
+    """Navigates back in the current mobile app.
+
+    Returns:
+        Confirmation message.
+    """
+    al = _get_appium()
+    al.go_back()
+    return "Navigated back in the mobile app"
 
 
 # ---------------------------------------------------------------------------
@@ -808,6 +825,69 @@ def appium_long_press(locator: str, duration: int = 1000) -> str:
     return f"Long pressed element: {locator} for {duration}ms"
 
 
+@tool
+def appium_select_picker_option(locator: str, option: str, timeout: str = "10s") -> str:
+    """Selects an option from a native picker, spinner, or dropdown-like control.
+
+    Args:
+        locator: Element locator for the picker trigger.
+        option: Visible option label to select.
+        timeout: Maximum time to wait for the option list.
+
+    Returns:
+        Confirmation message.
+    """
+    al = _get_appium()
+    option_locator = _select_picker_option(al, locator, option, timeout)
+    return f"Selected '{option}' from picker: {locator} via {option_locator}"
+
+
+@tool
+def appium_hide_keyboard(key_name: str = None) -> str:
+    """Hides the on-screen keyboard when it is open.
+
+    Args:
+        key_name: Optional soft-key name for platforms that require it.
+
+    Returns:
+        Confirmation message.
+    """
+    al = _get_appium()
+    if key_name:
+        al.hide_keyboard(key_name)
+    else:
+        al.hide_keyboard()
+    return "On-screen keyboard hidden"
+
+
+@tool
+def appium_is_keyboard_shown() -> str:
+    """Reports whether the on-screen keyboard is currently visible."""
+    al = _get_appium()
+    shown = bool(al.is_keyboard_shown())
+    return f"Keyboard shown: {shown}"
+
+
+@tool
+def appium_press_keycode(keycode: int, metastate: int = None, long_press: bool = False) -> str:
+    """Sends an Android keycode to the device.
+
+    Args:
+        keycode: Android keycode integer.
+        metastate: Optional Android metastate modifier.
+        long_press: Whether to long-press the key instead of a normal press.
+
+    Returns:
+        Confirmation message.
+    """
+    al = _get_appium()
+    if long_press:
+        al.long_press_keycode(keycode, metastate)
+        return f"Long-pressed Android keycode {keycode}"
+    al.press_keycode(keycode, metastate)
+    return f"Pressed Android keycode {keycode}"
+
+
 # ---------------------------------------------------------------------------
 # Gestures
 # ---------------------------------------------------------------------------
@@ -864,6 +944,68 @@ def _perform_viewport_swipe(al, *, direction: str, locator: str = None, duration
     if locator:
         return f"Scrolled {direction} using viewport gesture near: {locator}"
     return f"Scrolled {direction} using viewport gesture"
+
+
+def _parse_time_value(value, label: str) -> float:
+    try:
+        if isinstance(value, (int, float)):
+            seconds = float(value)
+        else:
+            seconds = float(timestr_to_secs(str(value)))
+    except Exception as exc:
+        raise AssertionError(
+            f"{label} must be a positive duration such as '10s' or '500ms', got '{value}'."
+        ) from exc
+    if seconds <= 0:
+        raise AssertionError(f"{label} must be greater than 0, got '{value}'.")
+    return seconds
+
+
+def _wait_until(condition, timeout: str, poll_interval: str, failure_message: str) -> None:
+    timeout_seconds = _parse_time_value(timeout, "timeout")
+    poll_seconds = _parse_time_value(poll_interval, "poll_interval")
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+
+    while True:
+        try:
+            if condition():
+                return
+            last_error = None
+        except AssertionError as exc:
+            last_error = exc
+
+        if time.monotonic() >= deadline:
+            if last_error is not None:
+                raise AssertionError(failure_message) from last_error
+            raise AssertionError(failure_message)
+        time.sleep(poll_seconds)
+
+
+def _mobile_wait_failure(detail: str, timeout: str) -> str:
+    return f"{detail} within {timeout}."
+
+
+def _select_picker_option(al, locator: str, option: str, timeout: str) -> str:
+    timeout_seconds = _parse_time_value(timeout, "timeout")
+    option_locator = _build_mobile_text_locator(option)
+
+    _maybe_scroll_into_view(al, locator)
+    al.click_element(locator)
+
+    wait_timeout = max(timeout_seconds / 2.0, 1.0)
+    try:
+        al.wait_until_page_contains_element(option_locator, wait_timeout)
+    except Exception:
+        if hasattr(al, "scroll_element_into_view"):
+            try:
+                al.scroll_element_into_view(option_locator)
+            except Exception as exc:
+                logger.debug("Unable to scroll picker option into view (%s): %s", option, exc)
+        al.wait_until_page_contains_element(option_locator, timeout_seconds)
+
+    al.click_element(option_locator)
+    return option_locator
 
 
 @tool
@@ -1010,35 +1152,146 @@ def appium_page_should_not_contain_text(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 @tool
-def appium_wait_until_element_is_visible(locator: str, timeout: int = 10) -> str:
+def appium_wait_until_element_is_visible(locator: str, timeout: str = "10s") -> str:
     """Waits until a mobile element becomes visible.
 
     Args:
         locator: Element locator to wait for.
-        timeout: Maximum wait time in seconds.
+        timeout: Maximum time to wait.
 
     Returns:
         Confirmation when element becomes visible.
     """
     al = _get_appium()
-    al.wait_until_element_is_visible(locator, timeout)
+    al.wait_until_element_is_visible(locator, _parse_time_value(timeout, "timeout"))
     return f"Element is now visible: {locator}"
 
 
 @tool
-def appium_wait_until_page_contains(text: str, timeout: int = 10) -> str:
+def appium_wait_until_page_contains_element(locator: str, timeout: str = "10s") -> str:
+    """Waits until the current screen contains the specified element.
+
+    Args:
+        locator: Element locator to wait for.
+        timeout: Maximum time to wait.
+
+    Returns:
+        Confirmation when the element appears.
+    """
+    al = _get_appium()
+    al.wait_until_page_contains_element(locator, _parse_time_value(timeout, "timeout"))
+    return f"Screen now contains element: {locator}"
+
+
+@tool
+def appium_wait_until_page_contains(text: str, timeout: str = "10s") -> str:
     """Waits until the screen contains the specified text.
 
     Args:
         text: Text to wait for.
-        timeout: Maximum wait time in seconds.
+        timeout: Maximum time to wait.
 
     Returns:
         Confirmation when text appears.
     """
     al = _get_appium()
-    al.wait_until_page_contains(text, timeout)
+    al.wait_until_page_contains(text, _parse_time_value(timeout, "timeout"))
     return f"Screen now contains: '{text}'"
+
+
+@tool
+def appium_wait_until_element_is_not_visible(
+    locator: str,
+    timeout: str = "10s",
+    poll_interval: str = "500ms",
+) -> str:
+    """Waits until a mobile element is no longer visible on the current screen."""
+    al = _get_appium()
+
+    def condition():
+        al.element_should_not_be_visible(locator)
+        return True
+
+    _wait_until(
+        condition,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        failure_message=_mobile_wait_failure(
+            f"Element '{locator}' did not become hidden",
+            timeout,
+        ),
+    )
+    return f"Element is no longer visible: {locator}"
+
+
+@tool
+def appium_wait_until_page_does_not_contain(text: str, timeout: str = "10s") -> str:
+    """Waits until the current screen no longer contains the specified text."""
+    al = _get_appium()
+    al.wait_until_page_does_not_contain(text, _parse_time_value(timeout, "timeout"))
+    return f"Screen no longer contains: '{text}'"
+
+
+@tool
+def appium_wait_until_page_does_not_contain_element(locator: str, timeout: str = "10s") -> str:
+    """Waits until the current screen no longer contains the specified element."""
+    al = _get_appium()
+    al.wait_until_page_does_not_contain_element(locator, _parse_time_value(timeout, "timeout"))
+    return f"Screen no longer contains element: {locator}"
+
+
+@tool
+def appium_wait_for_loading_to_finish(
+    timeout: str = "10s",
+    poll_interval: str = "500ms",
+    stable_polls: int = 2,
+) -> str:
+    """Waits until auto-detected mobile loading indicators disappear."""
+    if stable_polls < 1:
+        raise AssertionError(f"stable_polls must be at least 1, got '{stable_polls}'.")
+
+    timeout_seconds = _parse_time_value(timeout, "timeout")
+    poll_seconds = _parse_time_value(poll_interval, "poll_interval")
+    deadline = time.monotonic() + timeout_seconds
+    clean_polls = 0
+    checks = 0
+    observed_loading = False
+
+    while True:
+        snapshot = _get_mobile_snapshot_data(force_refresh=True)
+        checks += 1
+        indicators = snapshot.get("loading_indicators") or []
+        if indicators:
+            observed_loading = True
+            clean_polls = 0
+        else:
+            clean_polls += 1
+            if clean_polls >= stable_polls:
+                if observed_loading:
+                    return (
+                        "Mobile loading indicators cleared after "
+                        f"{checks} checks (stable_polls={stable_polls})"
+                    )
+                return (
+                    "No mobile loading indicators detected; screen already stable "
+                    f"after {checks} checks"
+                )
+
+        if time.monotonic() >= deadline:
+            details = []
+            for indicator in indicators[:3]:
+                kind = indicator.get("kind", "loading")
+                label = indicator.get("label")
+                if label:
+                    details.append(f'{kind}="{label[:40]}"')
+                else:
+                    details.append(kind)
+            detail_text = ", ".join(details) if details else "none"
+            raise AssertionError(
+                "Timed out waiting for mobile loading indicators to disappear. "
+                f"Last context={snapshot.get('context', 'unknown')}, indicators={detail_text}."
+            )
+        time.sleep(poll_seconds)
 
 
 # ---------------------------------------------------------------------------
@@ -1215,11 +1468,16 @@ MOBILE_TOOLS = instrument_tool_list([
     appium_close_all_applications,
     appium_background_app,
     appium_reset_application,
+    appium_go_back,
     appium_switch_context,
     appium_click_element,
     appium_input_text,
     appium_clear_text,
     appium_long_press,
+    appium_select_picker_option,
+    appium_hide_keyboard,
+    appium_is_keyboard_shown,
+    appium_press_keycode,
     appium_swipe,
     appium_scroll_down,
     appium_scroll_up,
@@ -1231,7 +1489,12 @@ MOBILE_TOOLS = instrument_tool_list([
     appium_page_should_contain_text,
     appium_page_should_not_contain_text,
     appium_wait_until_element_is_visible,
+    appium_wait_until_page_contains_element,
     appium_wait_until_page_contains,
+    appium_wait_until_element_is_not_visible,
+    appium_wait_until_page_does_not_contain,
+    appium_wait_until_page_does_not_contain_element,
+    appium_wait_for_loading_to_finish,
     appium_capture_page_screenshot,
     appium_handle_common_interruptions,
 ])

@@ -40,6 +40,10 @@ Tool usage:
   reset, or relaunch the app when the user explicitly requests that action.
 - Use `appium_click_element` to tap UI elements
 - Use `appium_input_text` to enter text in fields
+- Use `appium_select_picker_option` for native pickers, spinners, and dropdown-like controls
+- Use `appium_hide_keyboard` and `appium_press_keycode` for keyboard and
+  Android key actions when taps alone are insufficient
+- Use `appium_go_back` for real back-navigation instead of resetting or relaunching the app
 - Use `appium_swipe` to perform swipe gestures
 - Use `appium_element_should_be_visible` to verify elements are visible
 - Use `appium_get_text` to retrieve element text
@@ -50,6 +54,9 @@ Tool usage:
   `appium_switch_context` when the target controls live inside a WEBVIEW
 - Use `appium_handle_common_interruptions` when permissions, update prompts, tutorials,
   coach marks, or other transient dialogs block the requested action
+- Use `appium_wait_until_page_contains_element`, `appium_wait_until_element_is_not_visible`,
+  `appium_wait_until_page_does_not_contain`, `appium_wait_until_page_does_not_contain_element`,
+  and `appium_wait_for_loading_to_finish` for state-based synchronization instead of fixed sleeps
 - Use `appium_capture_page_screenshot` to capture evidence
 - If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
   Before executing actions for each step, call `start_high_level_step` with the step number

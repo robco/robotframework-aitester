@@ -59,6 +59,16 @@ class DummyAppium:
         self.closed_all = 0
         self.reset = 0
         self.swipes = []
+        self.back = 0
+        self.hidden_keyboard = []
+        self.keyboard_shown = False
+        self.keycodes = []
+        self.long_keycodes = []
+        self.waited_page_contains_element = []
+        self.waited_page_does_not_contain = []
+        self.waited_page_does_not_contain_element = []
+        self.element_hidden_checks = 0
+        self.hide_after = 0
         self._driver = DummyDriver(
             contexts=contexts,
             current_context=current_context,
@@ -88,6 +98,35 @@ class DummyAppium:
 
     def swipe(self, **kwargs):
         self.swipes.append(kwargs)
+
+    def go_back(self):
+        self.back += 1
+
+    def hide_keyboard(self, key_name=None):
+        self.hidden_keyboard.append(key_name)
+
+    def is_keyboard_shown(self):
+        return self.keyboard_shown
+
+    def press_keycode(self, keycode, metastate=None):
+        self.keycodes.append((keycode, metastate))
+
+    def long_press_keycode(self, keycode, metastate=None):
+        self.long_keycodes.append((keycode, metastate))
+
+    def wait_until_page_contains_element(self, locator, timeout, error=None):
+        self.waited_page_contains_element.append((locator, timeout))
+
+    def wait_until_page_does_not_contain(self, text, timeout, error=None):
+        self.waited_page_does_not_contain.append((text, timeout))
+
+    def wait_until_page_does_not_contain_element(self, locator, timeout, error=None):
+        self.waited_page_does_not_contain_element.append((locator, timeout))
+
+    def element_should_not_be_visible(self, locator):
+        self.element_hidden_checks += 1
+        if self.element_hidden_checks < self.hide_after:
+            raise AssertionError(f"{locator} still visible")
 
 
 class FaultySourceAppium(DummyAppium):
@@ -246,3 +285,158 @@ def test_appium_scroll_up_uses_viewport_dimensions(monkeypatch):
             "duration": 800,
         }
     ]
+
+
+def test_appium_go_back_uses_navigation_helper(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+
+    result = mobile_tools.appium_go_back()
+
+    assert result == "Navigated back in the mobile app"
+    assert dummy.back == 1
+
+
+def test_appium_hide_keyboard_accepts_optional_key_name(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+
+    result = mobile_tools.appium_hide_keyboard("Done")
+
+    assert result == "On-screen keyboard hidden"
+    assert dummy.hidden_keyboard == ["Done"]
+
+
+def test_appium_is_keyboard_shown_reports_state(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    dummy.keyboard_shown = True
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+
+    result = mobile_tools.appium_is_keyboard_shown()
+
+    assert result == "Keyboard shown: True"
+
+
+def test_appium_press_keycode_supports_long_press(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+
+    result = mobile_tools.appium_press_keycode(66, metastate=2, long_press=True)
+
+    assert result == "Long-pressed Android keycode 66"
+    assert dummy.keycodes == []
+    assert dummy.long_keycodes == [(66, 2)]
+
+
+def test_appium_select_picker_option_clicks_trigger_then_option(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+    monkeypatch.setattr(mobile_tools, "_maybe_scroll_into_view", lambda al, locator: None)
+
+    result = mobile_tools.appium_select_picker_option("id=country-picker", "Slovakia")
+
+    option_locator = (
+        'xpath=//*[@text="Slovakia" or @label="Slovakia" or @name="Slovakia" '
+        'or @content-desc="Slovakia" or @contentDescription="Slovakia" or @value="Slovakia"]'
+    )
+    assert result == f"Selected 'Slovakia' from picker: id=country-picker via {option_locator}"
+    assert dummy.clicked == ["id=country-picker", option_locator]
+    assert dummy.waited_page_contains_element == [(option_locator, 5.0)]
+
+
+def test_appium_wait_until_page_contains_element_passes_timeout(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+
+    result = mobile_tools.appium_wait_until_page_contains_element("id=login", timeout="7s")
+
+    assert result == "Screen now contains element: id=login"
+    assert dummy.waited_page_contains_element == [("id=login", 7.0)]
+
+
+def test_appium_wait_until_element_is_not_visible_retries_until_hidden(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    dummy.hide_after = 3
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+
+    class FakeClock:
+        def __init__(self):
+            self.now = 0.0
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.now += seconds
+
+    fake_clock = FakeClock()
+    monkeypatch.setattr(mobile_tools.time, "monotonic", fake_clock.monotonic)
+    monkeypatch.setattr(mobile_tools.time, "sleep", fake_clock.sleep)
+
+    result = mobile_tools.appium_wait_until_element_is_not_visible(
+        "id=loader",
+        timeout="5s",
+        poll_interval="500ms",
+    )
+
+    assert result == "Element is no longer visible: id=loader"
+    assert dummy.element_hidden_checks == 3
+
+
+def test_appium_wait_until_page_does_not_contain_and_element(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+
+    result_text = mobile_tools.appium_wait_until_page_does_not_contain("Saving", timeout="4s")
+    result_element = mobile_tools.appium_wait_until_page_does_not_contain_element(
+        "id=toast",
+        timeout="4s",
+    )
+
+    assert result_text == "Screen no longer contains: 'Saving'"
+    assert result_element == "Screen no longer contains element: id=toast"
+    assert dummy.waited_page_does_not_contain == [("Saving", 4.0)]
+    assert dummy.waited_page_does_not_contain_element == [("id=toast", 4.0)]
+
+
+def test_appium_wait_for_loading_to_finish_uses_snapshot_until_stable(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+
+    snapshots = iter(
+        [
+            {"loading_indicators": [{"kind": "spinner", "label": "Loading"}], "context": "NATIVE_APP"},
+            {"loading_indicators": [], "context": "NATIVE_APP"},
+            {"loading_indicators": [], "context": "NATIVE_APP"},
+        ]
+    )
+    monkeypatch.setattr(
+        mobile_tools,
+        "_get_mobile_snapshot_data",
+        lambda force_refresh=False: next(snapshots),
+    )
+
+    class FakeClock:
+        def __init__(self):
+            self.now = 0.0
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.now += seconds
+
+    fake_clock = FakeClock()
+    monkeypatch.setattr(mobile_tools.time, "monotonic", fake_clock.monotonic)
+    monkeypatch.setattr(mobile_tools.time, "sleep", fake_clock.sleep)
+
+    result = mobile_tools.appium_wait_for_loading_to_finish()
+
+    assert result == "Mobile loading indicators cleared after 3 checks (stable_polls=2)"

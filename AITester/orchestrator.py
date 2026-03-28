@@ -361,12 +361,22 @@ class AgentOrchestrator:
                 "relaunching the app to skip ahead."
             )
             rules.append(
-                "8. For hybrid apps, inspect `appium_get_context_inventory` and "
+                "8. Prefer state-based waits such as "
+                "`appium_wait_until_page_contains_element`, "
+                "`appium_wait_until_element_is_not_visible`, and "
+                "`appium_wait_for_loading_to_finish` instead of fixed sleeps. "
+                "Use `appium_select_picker_option` for native picker or spinner "
+                "controls, `appium_hide_keyboard` or `appium_press_keycode` when "
+                "the soft keyboard blocks the flow, and `appium_go_back` for "
+                "true back-navigation."
+            )
+            rules.append(
+                "9. For hybrid apps, inspect `appium_get_context_inventory` and "
                 "use `appium_switch_context` when the target UI lives in a "
                 "WEBVIEW context instead of native views."
             )
             rules.append(
-                "9. Preserve any open mobile session. Do not close, reset, "
+                "10. Preserve any open mobile session. Do not close, reset, "
                 "or relaunch the application as a recovery step unless the "
                 "user explicitly requested that action."
             )
