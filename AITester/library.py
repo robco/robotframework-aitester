@@ -38,6 +38,7 @@ from robot.api import logger as rf_logger
 from robot.api.deco import keyword
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
+from ._version import __version__
 from .executor import (
     SafetyGuard,
     SessionStatus,
@@ -73,7 +74,7 @@ class AITester:
     """
 
     ROBOT_LIBRARY_SCOPE = "GLOBAL"
-    ROBOT_LIBRARY_VERSION = "0.1.0"
+    ROBOT_LIBRARY_VERSION = __version__
     ROBOT_LIBRARY_DOC_FORMAT = "ROBOT"
 
     _SCREENSHOT_SUBDIR = "aitester-screenshots"

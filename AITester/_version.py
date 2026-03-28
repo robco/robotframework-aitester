@@ -14,13 +14,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-robotframework-aitester — Fully Autonomous AI Testing for Robot Framework
+"""Project version metadata."""
 
-Main Robot Framework library entrypoint.
-"""
+from pathlib import Path
 
-from ._version import __version__
-from .library import AITester
+_FALLBACK_VERSION = "0.0.1-dev"
 
-__all__ = ["AITester", "__version__"]
+
+def _read_latest_changes_version():
+    """Read the newest release version from CHANGES when available."""
+    changes_path = Path(__file__).resolve().parents[1] / "CHANGES"
+    try:
+        first_line = changes_path.read_text(encoding="utf-8").splitlines()[0].strip()
+    except (FileNotFoundError, IndexError, OSError):
+        return _FALLBACK_VERSION
+
+    version = first_line.split(",", 1)[0].strip()
+    return version or _FALLBACK_VERSION
+
+
+__version__ = _read_latest_changes_version()
