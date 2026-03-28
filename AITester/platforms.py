@@ -31,6 +31,7 @@ class Platforms(Enum):
     Each platform value is a dict with:
     - default_model: Default model ID for this platform.
     - api_key_env: Environment variable name for the API key (None if not needed).
+    - fixed_api_key: Fixed API key required by the backend, if any.
     - default_base_url: Default base URL (None for cloud defaults).
     - strands_provider: Strands Agents SDK provider identifier.
     """
@@ -54,6 +55,7 @@ class Platforms(Enum):
     DockerModel = {
         "default_model": "ai/qwen3-vl:8B-Q8_K_XL",
         "api_key_env": None,
+        "fixed_api_key": "dummy",
         "default_base_url": "http://localhost:12434/engines/v1",
         "strands_provider": "openai",
         "supports_tool_use": True,

@@ -52,6 +52,7 @@ class TestPlatforms:
         assert config["default_model"] == "ai/qwen3-vl:8B-Q8_K_XL"
         assert "localhost" in config["default_base_url"]
         assert config["api_key_env"] is None
+        assert config["fixed_api_key"] == "dummy"
         assert config["strands_provider"] == "openai"
 
     def test_anthropic_defaults(self):

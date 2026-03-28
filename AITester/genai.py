@@ -41,12 +41,13 @@ class GenAIProvider:
         Args:
             platform: Platforms enum value specifying the AI provider.
             model: Model ID override (uses platform default if None).
-            api_key: API key override (resolves from env if None).
+            api_key: API key override (resolves from env if None, unless the
+                platform defines a fixed API key).
             base_url: Base URL override (uses platform default if None).
         """
         self.platform = platform
         self.model_id = model or platform.value["default_model"]
-        self.api_key = api_key or self._resolve_api_key(platform)
+        self.api_key = self._resolve_effective_api_key(platform, api_key)
         self.base_url = base_url or platform.value["default_base_url"]
 
         logger.info(
@@ -54,6 +55,19 @@ class GenAIProvider:
             platform.name,
             self.model_id,
         )
+
+    @classmethod
+    def _resolve_effective_api_key(cls, platform, api_key):
+        """Resolve the API key used to create the provider client."""
+        fixed_api_key = platform.value.get("fixed_api_key")
+        if fixed_api_key is not None:
+            if api_key and api_key != fixed_api_key:
+                logger.debug(
+                    "Ignoring custom api_key for %s and using fixed value.",
+                    platform.name,
+                )
+            return fixed_api_key
+        return api_key or cls._resolve_api_key(platform)
 
     def create_model(self):
         """Create and return a Strands-compatible model instance.

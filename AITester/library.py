@@ -137,7 +137,9 @@ class AITester:
         - ``model``: Optional model ID override. Uses the platform default when
           not specified.
         - ``api_key``: Optional API key override. Resolves from environment
-          defaults when not specified.
+          defaults when not specified. Ignored for ``DockerModel``, which
+          always uses the fixed ``dummy`` key required by its OpenAI-compatible
+          endpoint.
         - ``base_url``: Optional base URL override. Uses the platform default
           when not specified.
         - ``max_iterations``: Maximum agent iterations per test run. Default

@@ -197,7 +197,7 @@ AI Mobile App Test
 |-----------|-----------------------------------|---------------------|-------------------------------|
 | OpenAI    | gpt-4o                            | OpenAI API          | Requires `OPENAI_API_KEY`     |
 | Ollama    | llama3.3                          | Local Ollama        | Free, local inference         |
-| Docker Model | ai/qwen3-vl:8B-Q8_K_XL         | Local Docker Model Runner | Free, local inference, requires `api_key` to be set to dummy string   |
+| Docker Model | ai/qwen3-vl:8B-Q8_K_XL         | Local Docker Model Runner | Free, local inference; `api_key` is auto-set to `dummy`               |
 | Gemini    | gemini-2.0-flash                  | Google AI           | Requires `GEMINI_API_KEY`     |
 | Anthropic | claude-sonnet-4-5                 | Anthropic API       | Requires `ANTHROPIC_API_KEY`  |
 | Bedrock   | us.anthropic.claude-sonnet-4-5-20251101-v1:0 | AWS Bedrock | Uses AWS credentials       |
@@ -234,7 +234,7 @@ Library    AITester
 |-----------------------|------------|-----------------------------------------------|
 | `platform`            | OpenAI     | AI platform (OpenAI, Ollama, Gemini, etc.)    |
 | `model`               | (varies)   | Model ID override                             |
-| `api_key`             | (env var)  | API key override                              |
+| `api_key`             | (env var)  | API key override; ignored for Docker Model, which always uses `dummy` |
 | `base_url`            | (varies)   | API base URL override                         |
 | `max_iterations`      | 50         | Maximum agent iterations                      |
 | `test_mode`           | web        | Default test mode (web, api, mobile)          |
@@ -250,6 +250,10 @@ Library    AITester
 If you import SeleniumLibrary/RequestsLibrary/AppiumLibrary with an alias,
 pass the corresponding `*_library` parameter so AI tools attach to the
 already-opened session.
+
+For `platform=DockerModel`, AITester automatically passes `api_key=dummy`
+to the OpenAI-compatible Strands client. No environment variable or
+constructor argument is required for that platform.
 
 Important: AITester can only drive sessions created by SeleniumLibrary/AppiumLibrary.
 If you open a browser/app manually or through another tool, the agent will not
