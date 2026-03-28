@@ -19,7 +19,7 @@ common transient blockers, capture evidence, and log results into Robot
 Framework's built-in `log.html` / `report.html`.
 
 For UI modes, AITester is intentionally session-reuse oriented: your suite
-opens the browser or mobile app with SeleniumLibrary or AppiumLibrary first,
+opens the browser or mobile app with _SeleniumLibrary_ or _AppiumLibrary_ first,
 and AITester attaches to that existing session rather than provisioning a new
 one on its own.
 
@@ -40,29 +40,14 @@ one on its own.
 
 Keywords documentation can be found [here](https://robco.github.io/robotframework-aitester/).
 
-## Compatibility
-
-- Python: `3.10` to `3.13`
-- Robot Framework: `6.0+`
-- Recommended Robot Framework: `7.0+`
-- Best HTML log rendering and embedded screenshot presentation: `7.4+`
-
-## Mode Support
-
-| Mode    | Backing RF Library     | 1.0.0 Positioning | Notes |
-|---------|------------------------|-------------------|-------|
-| Web     | SeleniumLibrary        | Broadest coverage | Most mature executor and analysis path; best coverage for blockers, frames, form handling, and page-state analysis. |
-| API     | RequestsLibrary        | Stable            | Production-ready for guided REST workflows, assertions, and step-driven API runs. |
-| Mobile  | AppiumLibrary          | Supported         | Production-ready for guided native and hybrid flows with session reuse, interruption handling, waits, picker helpers, keyboard control, and back navigation. Web remains the broader path. |
-
 ## Prerequisites
 
-- For web runs, open the target browser with SeleniumLibrary before calling `Run AI Test` or `Run AI Exploration`.
-- For mobile runs, start the Appium server, device or emulator, and open the application with AppiumLibrary before calling `Run AI Mobile Test` or `Run AI Exploration`.
-- For API runs, load RequestsLibrary in the suite and provide `base_url` or an already-initialized session context when relevant.
+- For web runs, open the target browser with _SeleniumLibrary_ before calling `Run AI Test` or `Run AI Exploration`.
+- For mobile runs, start the Appium server, device or emulator, and open the application with _AppiumLibrary_ before calling `Run AI Mobile Test` or `Run AI Exploration`.
+- For API runs, load _RequestsLibrary_ in the suite and provide `base_url` or an already-initialized session context when relevant.
 - Install only the extras you need for the target mode and provider.
 - Set provider credentials through environment variables such as `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` when required.
-- If SeleniumLibrary, RequestsLibrary, or AppiumLibrary is imported with an alias, pass the corresponding `selenium_library`, `requests_library`, or `appium_library` constructor argument so AITester can attach to the existing session.
+- If _SeleniumLibrary_, _RequestsLibrary_, or _AppiumLibrary_ is imported with an alias, pass the corresponding `selenium_library`, `requests_library`, or `appium_library` constructor argument so AITester can attach to the existing session.
 
 ## Architecture
 
@@ -253,7 +238,7 @@ and use back navigation without dropping down to raw Appium commands.
 |-----------|-----------------------------------|---------------------|-------------------------------|
 | OpenAI    | gpt-4o                            | OpenAI API          | Requires `OPENAI_API_KEY`     |
 | Ollama    | llama3.3                          | Local Ollama        | Free, local inference         |
-| Docker Model | ai/qwen3-vl:8B-Q8_K_XL         | Local Docker Model Runner | Free, local inference; `api_key` is auto-set to `dummy`               |
+| Docker Model | ai/qwen3-vl:8B-Q8_K_XL         | Local Docker Model Runner | Free, local inference   |
 | Gemini    | gemini-2.0-flash                  | Google AI           | Requires `GEMINI_API_KEY`     |
 | Anthropic | claude-sonnet-4-5                 | Anthropic API       | Requires `ANTHROPIC_API_KEY`  |
 | Bedrock   | us.anthropic.claude-sonnet-4-5-20251101-v1:0 | AWS Bedrock | Uses AWS credentials       |
@@ -303,7 +288,7 @@ Library    AITester
 | `timeout_seconds`     | 600        | Configures `SafetyGuard` timeout metadata     |
 | `max_cost_usd`        | None       | Configures `SafetyGuard` cost-limit metadata  |
 
-If you import SeleniumLibrary/RequestsLibrary/AppiumLibrary with an alias,
+If you import _SeleniumLibrary_/_RequestsLibrary_/_AppiumLibrary_ with an alias,
 pass the corresponding `*_library` parameter so AI tools attach to the
 already-opened session.
 
@@ -311,7 +296,7 @@ For `platform=DockerModel`, AITester automatically passes `api_key=dummy`
 to the OpenAI-compatible Strands client. No environment variable or
 constructor argument is required for that platform.
 
-Important: AITester can only drive sessions created by SeleniumLibrary/AppiumLibrary.
+Important: AITester can only drive sessions created by _SeleniumLibrary_/_AppiumLibrary_.
 If you open a browser/app manually or through another tool, the agent will not
 be able to interact with it.
 
@@ -359,7 +344,7 @@ Reuse Existing Web Session
 
 ## Integration with robotframework-aivision
 
-When [robotframework-aivision](https://github.com/robco/robotframework-aivision) is loaded alongside AITester, additional visual analysis capabilities become available to the agents, including screenshot analysis, visual regression detection, and accessibility validation.
+When [robotframework-aivision](https://github.com/robco/robotframework-aivision) is loaded alongside _AITester_, additional visual analysis capabilities become available to the agents, including screenshot analysis, visual regression detection, and accessibility validation.
 
 ## Reporting
 
