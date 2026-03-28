@@ -25,15 +25,45 @@ EMPTY_SOURCE = """
 """.strip()
 
 
+class DummySwitchTo:
+    def __init__(self, driver):
+        self.driver = driver
+
+    def context(self, name):
+        self.driver.current_context = name
+        self.driver.switched_contexts.append(name)
+
+
+class DummyDriver:
+    def __init__(self, contexts=None, current_context="NATIVE_APP", window_size=None):
+        self.session_id = "mobile-session"
+        self.current_context = current_context
+        self.contexts = list(contexts or [current_context])
+        self.capabilities = {}
+        self.current_activity = ""
+        self.current_package = ""
+        self.switched_contexts = []
+        self._window_size = window_size or {"width": 1000, "height": 2000}
+        self.switch_to = DummySwitchTo(self)
+
+    def get_window_size(self):
+        return dict(self._window_size)
+
+
 class DummyAppium:
-    def __init__(self, sources):
+    def __init__(self, sources, contexts=None, current_context="NATIVE_APP", window_size=None):
         self._sources = list(sources)
         self.clicked = []
         self.source_calls = 0
         self.closed = 0
         self.closed_all = 0
         self.reset = 0
-        self._driver = type("Driver", (), {"session_id": "mobile-session"})()
+        self.swipes = []
+        self._driver = DummyDriver(
+            contexts=contexts,
+            current_context=current_context,
+            window_size=window_size,
+        )
 
     def get_source(self):
         self.source_calls += 1
@@ -55,6 +85,9 @@ class DummyAppium:
 
     def reset_application(self):
         self.reset += 1
+
+    def swipe(self, **kwargs):
+        self.swipes.append(kwargs)
 
 
 class FaultySourceAppium(DummyAppium):
@@ -153,3 +186,63 @@ def test_appium_get_view_snapshot_falls_back_when_source_unavailable(monkeypatch
     assert "Screen text preview:" in snapshot
     assert source == "Page source unavailable: Unable to retrieve Appium page source: socket hang up"
     assert dummy.source_calls == 1
+
+
+def test_appium_switch_context_selects_webview_and_invalidates_cache(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium(
+        [EMPTY_SOURCE],
+        contexts=["NATIVE_APP", "WEBVIEW_com.example"],
+    )
+    invalidations = []
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+    monkeypatch.setattr(
+        mobile_tools,
+        "invalidate_mobile_snapshot_cache",
+        lambda driver=None: invalidations.append(driver),
+    )
+
+    result = mobile_tools.appium_switch_context("webview")
+
+    assert result == "Switched mobile context to WEBVIEW_com.example"
+    assert dummy._driver.current_context == "WEBVIEW_com.example"
+    assert dummy._driver.switched_contexts == ["WEBVIEW_com.example"]
+    assert invalidations == [dummy._driver, None]
+
+
+def test_appium_scroll_down_uses_viewport_dimensions(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE], window_size={"width": 1000, "height": 2000})
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+
+    result = mobile_tools.appium_scroll_down()
+
+    assert result == "Scrolled down using viewport gesture"
+    assert dummy.swipes == [
+        {
+            "start_x": 500,
+            "start_y": 1640,
+            "end_x": 500,
+            "end_y": 700,
+            "duration": 800,
+        }
+    ]
+
+
+def test_appium_scroll_up_uses_viewport_dimensions(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE], window_size={"width": 1000, "height": 2000})
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+
+    result = mobile_tools.appium_scroll_up()
+
+    assert result == "Scrolled up using viewport gesture"
+    assert dummy.swipes == [
+        {
+            "start_x": 500,
+            "start_y": 700,
+            "end_x": 500,
+            "end_y": 1640,
+            "duration": 800,
+        }
+    ]

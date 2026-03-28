@@ -90,6 +90,7 @@ MOBILE_UI_INTERACTION_ACTIONS = {
     "appium_open_application",
     "appium_close_application",
     "appium_close_all_applications",
+    "appium_switch_context",
     "appium_click_element",
     "appium_input_text",
     "appium_clear_text",
@@ -115,6 +116,10 @@ MOBILE_UI_STATE_ACTIONS = {
     "appium_capture_page_screenshot",
     "appium_get_view_snapshot",
     "appium_get_source",
+    "appium_get_loading_state",
+    "appium_get_interactive_elements",
+    "appium_get_screen_structure",
+    "appium_get_context_inventory",
 }
 
 WEB_UI_MUTATION_ACTIONS = {
@@ -157,6 +162,7 @@ MOBILE_UI_MUTATION_ACTIONS = {
     "appium_open_application",
     "appium_close_application",
     "appium_close_all_applications",
+    "appium_switch_context",
     "appium_click_element",
     "appium_input_text",
     "appium_clear_text",

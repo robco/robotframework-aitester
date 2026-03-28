@@ -43,8 +43,11 @@ Tool usage:
 - Use `appium_swipe` to perform swipe gestures
 - Use `appium_element_should_be_visible` to verify elements are visible
 - Use `appium_get_text` to retrieve element text
-- Prefer `appium_get_view_snapshot` for screen analysis and use
-  `appium_get_source` only when you need deeper XML detail
+- Prefer `appium_get_view_snapshot`, `appium_get_interactive_elements`, and
+  `appium_get_loading_state` for structured screen analysis
+- Use `appium_get_source` only when you need deeper XML detail
+- For hybrid apps, inspect `appium_get_context_inventory` and switch with
+  `appium_switch_context` when the target controls live inside a WEBVIEW
 - Use `appium_handle_common_interruptions` when permissions, update prompts, tutorials,
   coach marks, or other transient dialogs block the requested action
 - Use `appium_capture_page_screenshot` to capture evidence
