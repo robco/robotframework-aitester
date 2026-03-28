@@ -1,7 +1,7 @@
 [![Python Package CI](https://github.com/robco/robotframework-aitester/actions/workflows/python-package.yml/badge.svg)](https://github.com/robco/robotframework-aitester/actions/workflows/python-package.yml)
 
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/robco)
-# Fully Autonomous AI Testing for Robot Framework
+# Robot Framework AI Tester
 
 [![Robot Framework](https://img.shields.io/badge/Robot%20Framework-7.0%2B-brightgreen)](https://robotframework.org)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
