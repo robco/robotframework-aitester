@@ -141,7 +141,11 @@ def test_run_skips_planner_for_mobile_user_defined_steps(monkeypatch):
     assert len(planner.calls) == 0
     assert "User-defined Main Flow:" in executor.calls[0]
     assert "appium_get_view_snapshot" in executor.calls[0]
+    assert "appium_get_interactive_elements" in executor.calls[0]
+    assert "appium_get_loading_state" in executor.calls[0]
     assert "appium_handle_common_interruptions" in executor.calls[0]
+    assert "appium_get_context_inventory" in executor.calls[0]
+    assert "appium_switch_context" in executor.calls[0]
     assert "navigate with visible taps, swipes, scrolls" in executor.calls[0]
     assert "Do not close, reset, or relaunch the application" in executor.calls[0]
 

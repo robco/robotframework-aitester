@@ -38,6 +38,7 @@ from robot.api import logger as rf_logger
 from robot.api.deco import keyword
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 
+from ._version import __version__
 from .executor import (
     SafetyGuard,
     SessionStatus,
@@ -55,17 +56,26 @@ logger = logging.getLogger(__name__)
 class AITester:
     """Autonomous AI testing library for Robot Framework.
 
-    Enables fully autonomous, AI-driven test automation by combining
-    the Strands Agents SDK with native RF library integration. Users
-    supply a test objective and the AI agent autonomously designs,
-    executes, and reports on test scenarios.
+    Enables autonomous, AI-driven testing by combining the Strands Agents SDK
+    with native Robot Framework library integration. Users supply a test
+    objective or numbered flow and the agent plans or reuses a path, executes
+    it, adapts around transient blockers, and reports the outcome in standard
+    Robot Framework logs.
 
     Supported test modes:
     - web: Selenium-based browser testing (requires SeleniumLibrary)
     - api: REST API testing (requires RequestsLibrary)
     - mobile: Appium-based mobile testing (requires AppiumLibrary)
 
-    Supported AI platforms: OpenAI, Ollama, Gemini, Anthropic, Bedrock
+    Supported AI platforms: OpenAI, Ollama, Docker Model, Gemini, Anthropic, Bedrock
+
+    Notes:
+    - UI modes reuse existing SeleniumLibrary or AppiumLibrary sessions instead
+      of provisioning browsers or mobile apps automatically.
+    - Web is the broadest and most mature executor path.
+    - Mobile supports guided native and hybrid flows with interruption handling,
+      loading waits, picker helpers, keyboard control, context switching, and
+      back navigation.
 
     Examples:
     | Library | AITester | platform=OpenAI | api_key=%{OPENAI_API_KEY} | model=gpt-4o |
@@ -73,7 +83,7 @@ class AITester:
     """
 
     ROBOT_LIBRARY_SCOPE = "GLOBAL"
-    ROBOT_LIBRARY_VERSION = "0.1.0"
+    ROBOT_LIBRARY_VERSION = __version__
     ROBOT_LIBRARY_DOC_FORMAT = "ROBOT"
 
     _SCREENSHOT_SUBDIR = "aitester-screenshots"
@@ -137,7 +147,9 @@ class AITester:
         - ``model``: Optional model ID override. Uses the platform default when
           not specified.
         - ``api_key``: Optional API key override. Resolves from environment
-          defaults when not specified.
+          defaults when not specified. Ignored for ``DockerModel``, which
+          always uses the fixed ``dummy`` key required by its OpenAI-compatible
+          endpoint.
         - ``base_url``: Optional base URL override. Uses the platform default
           when not specified.
         - ``max_iterations``: Maximum agent iterations per test run. Default
@@ -164,6 +176,12 @@ class AITester:
         Notes:
         - ``report_formats`` is ignored. Robot Framework built-in reporting is
           used instead.
+        - For web and mobile runs, open the browser or application with
+          SeleniumLibrary or AppiumLibrary first so AITester can reuse that
+          active session.
+        - Robot Framework ``6.0+`` is supported. ``7.4+`` provides the best
+          built-in HTML log rendering for embedded screenshots and detailed
+          keyword output.
         """
         try:
             self.platform = Platforms[platform]
@@ -1375,6 +1393,10 @@ class AITester:
         disappears, opening a hidden menu, waiting for the page to settle, or
         clearing a permission prompt.
 
+        For UI modes, the keyword attaches to an already-open SeleniumLibrary
+        or AppiumLibrary session. It does not create browsers or mobile app
+        sessions on its own.
+
         Arguments:
         - ``test_objective``: High-level goal, scenario description, or a text
           block that already contains numbered steps.
@@ -1772,6 +1794,11 @@ class AITester:
         screens, handling permission dialogs, or opening a hidden tab before
         validating the requested outcome.
 
+        The mobile executor supports guided native and hybrid flows with
+        condition-based waits, picker selection helpers, keyboard control,
+        back navigation, and context switching when the active Appium session
+        exposes those capabilities.
+
         Arguments:
         - ``test_objective``: High-level mobile objective or text that contains
           numbered main-flow steps.
@@ -1790,6 +1817,11 @@ class AITester:
         - Fails if orchestration raises an exception.
         - Fails if the AI returns a clearly failed final status.
         - Fails if user-defined steps are not completed successfully.
+
+        Notes:
+        - Requires an active AppiumLibrary session opened by the Robot suite.
+        - Best results come from explicit ``app_context`` details and numbered
+          ``test_steps`` that describe the intended user flow and screen state.
 
         Examples:
         | ${status}= | Run AI Mobile Test |

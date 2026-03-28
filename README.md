@@ -7,9 +7,21 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
-`robotframework-aitester` is a Robot Framework library that enables fully autonomous, AI-driven test automation. By combining the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) with multi-provider GenAI model access and native RF library integration, this module allows testers to specify **what to test** rather than **how to test it**.
+`robotframework-aitester` is a Robot Framework library for autonomous, AI-driven
+testing across web, API, and mobile flows. By combining the
+[Strands Agents SDK](https://github.com/strands-agents/sdk-python) with native
+Robot Framework library reuse, it lets testers specify **what to test** rather
+than scripting every interaction detail by hand.
 
-Supply a test area, scenario, or high-level test idea for a target application â€” web, mobile, or API â€” and the AI agent autonomously designs or reuses a plan, executes test steps, adapts around common transient blockers, captures evidence, and logs results into Robot Framework's built-in `log.html` / `report.html`.
+Supply a scenario, risk area, or numbered business flow for a target
+application and the agent will plan or reuse a flow, execute it, adapt around
+common transient blockers, capture evidence, and log results into Robot
+Framework's built-in `log.html` / `report.html`.
+
+For UI modes, AITester is intentionally session-reuse oriented: your suite
+opens the browser or mobile app with SeleniumLibrary or AppiumLibrary first,
+and AITester attaches to that existing session rather than provisioning a new
+one on its own.
 
 ## Feature Highlights
 
@@ -19,6 +31,7 @@ Supply a test area, scenario, or high-level test idea for a target application â
 - Instrumented tool bridge records step status, duration, assertion details, and screenshot references, surfacing them in RF logs via the `AI Step` keyword.
 - Browser analysis tools share a cached `get_page_snapshot` view and derive interactive elements, page structure, form fields, links, text content, and console errors from that shared page state.
 - Mobile analysis tools now reuse a cached Appium source snapshot across screen-summary and source-inspection calls until the UI changes.
+- Mobile runs now include higher-level Appium helpers for loading waits, picker selection, keyboard control, context switching, and back navigation.
 - Web and mobile executors can add minimal recovery actions when the requested flow is blocked by cookie banners, consent modals, permission dialogs, tutorials, or similar transient UI interruptions. For web runs, cookie/consent banners are accepted by default unless the user explicitly says otherwise.
 - Utility tools provide assertions, JSON parsing, timing, RF variable access, and optional AIVision screenshot analysis.
 - RF built-in reporting with embedded screenshots, cached screenshot artifacts, and high-level step grouping when user-defined steps are provided.
@@ -26,6 +39,30 @@ Supply a test area, scenario, or high-level test idea for a target application â
 ## Keywords Documentation
 
 Keywords documentation can be found [here](https://robco.github.io/robotframework-aitester/).
+
+## Compatibility
+
+- Python: `3.10` to `3.13`
+- Robot Framework: `6.0+`
+- Recommended Robot Framework: `7.0+`
+- Best HTML log rendering and embedded screenshot presentation: `7.4+`
+
+## Mode Support
+
+| Mode    | Backing RF Library     | 1.0.0 Positioning | Notes |
+|---------|------------------------|-------------------|-------|
+| Web     | SeleniumLibrary        | Broadest coverage | Most mature executor and analysis path; best coverage for blockers, frames, form handling, and page-state analysis. |
+| API     | RequestsLibrary        | Stable            | Production-ready for guided REST workflows, assertions, and step-driven API runs. |
+| Mobile  | AppiumLibrary          | Supported         | Production-ready for guided native and hybrid flows with session reuse, interruption handling, waits, picker helpers, keyboard control, and back navigation. Web remains the broader path. |
+
+## Prerequisites
+
+- For web runs, open the target browser with SeleniumLibrary before calling `Run AI Test` or `Run AI Exploration`.
+- For mobile runs, start the Appium server, device or emulator, and open the application with AppiumLibrary before calling `Run AI Mobile Test` or `Run AI Exploration`.
+- For API runs, load RequestsLibrary in the suite and provide `base_url` or an already-initialized session context when relevant.
+- Install only the extras you need for the target mode and provider.
+- Set provider credentials through environment variables such as `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` when required.
+- If SeleniumLibrary, RequestsLibrary, or AppiumLibrary is imported with an alias, pass the corresponding `selenium_library`, `requests_library`, or `appium_library` constructor argument so AITester can attach to the existing session.
 
 ## Architecture
 
@@ -75,6 +112,12 @@ pip install robotframework-aitester
 # With web testing support
 pip install robotframework-aitester[web]
 
+# With API testing support
+pip install robotframework-aitester[api]
+
+# With mobile testing support
+pip install robotframework-aitester[mobile]
+
 # With all testing modes and OpenAI
 pip install robotframework-aitester[all,openai]
 
@@ -90,6 +133,13 @@ pip install robotframework-aitester[all,ollama]
 # Development
 pip install robotframework-aitester[all,openai,dev]
 ```
+
+Recommended production installs:
+
+- `pip install robotframework-aitester[web]` for Selenium-based UI suites
+- `pip install robotframework-aitester[api]` for RequestsLibrary-based API suites
+- `pip install robotframework-aitester[mobile]` for Appium-based mobile suites
+- Add provider extras such as `[openai]`, `[anthropic]`, `[bedrock]`, or `[ollama]` when your selected GenAI backend needs them
 
 ## Quick Start
 
@@ -191,12 +241,19 @@ AI Mobile App Test
     [Teardown]    Close Application
 ```
 
+For mobile runs, AITester expects an active AppiumLibrary session and works best
+when `app_context` and numbered `test_steps` make the target screen, account
+state, and intended path explicit. It can now wait on loading indicators, work
+through common pickers, hide the on-screen keyboard, switch hybrid contexts,
+and use back navigation without dropping down to raw Appium commands.
+
 ## Supported AI Platforms
 
 | Platform  | Default Model                     | Provider            | Notes                         |
 |-----------|-----------------------------------|---------------------|-------------------------------|
 | OpenAI    | gpt-4o                            | OpenAI API          | Requires `OPENAI_API_KEY`     |
 | Ollama    | llama3.3                          | Local Ollama        | Free, local inference         |
+| Docker Model | ai/qwen3-vl:8B-Q8_K_XL         | Local Docker Model Runner | Free, local inference; `api_key` is auto-set to `dummy`               |
 | Gemini    | gemini-2.0-flash                  | Google AI           | Requires `GEMINI_API_KEY`     |
 | Anthropic | claude-sonnet-4-5                 | Anthropic API       | Requires `ANTHROPIC_API_KEY`  |
 | Bedrock   | us.anthropic.claude-sonnet-4-5-20251101-v1:0 | AWS Bedrock | Uses AWS credentials       |
@@ -233,7 +290,7 @@ Library    AITester
 |-----------------------|------------|-----------------------------------------------|
 | `platform`            | OpenAI     | AI platform (OpenAI, Ollama, Gemini, etc.)    |
 | `model`               | (varies)   | Model ID override                             |
-| `api_key`             | (env var)  | API key override                              |
+| `api_key`             | (env var)  | API key override; ignored for Docker Model, which always uses `dummy` |
 | `base_url`            | (varies)   | API base URL override                         |
 | `max_iterations`      | 50         | Maximum agent iterations                      |
 | `test_mode`           | web        | Default test mode (web, api, mobile)          |
@@ -249,6 +306,10 @@ Library    AITester
 If you import SeleniumLibrary/RequestsLibrary/AppiumLibrary with an alias,
 pass the corresponding `*_library` parameter so AI tools attach to the
 already-opened session.
+
+For `platform=DockerModel`, AITester automatically passes `api_key=dummy`
+to the OpenAI-compatible Strands client. No environment variable or
+constructor argument is required for that platform.
 
 Important: AITester can only drive sessions created by SeleniumLibrary/AppiumLibrary.
 If you open a browser/app manually or through another tool, the agent will not
@@ -302,9 +363,12 @@ When [robotframework-aivision](https://github.com/robco/robotframework-aivision)
 
 ## Reporting
 
-robotframework-aitester uses only Robot Framework v7.4+ built-in reporting
+robotframework-aitester uses Robot Framework built-in reporting
 (`log.html` / `report.html`). No custom standalone reports are generated.
 `Run AI*` keywords return a short completion status; review details in the RF log.
+
+Robot Framework `6.0+` is supported, but `7.4+` gives the best HTML log
+rendering for embedded screenshots and richer keyword output.
 
 When you provide user-defined numbered test steps (via the `test_steps` argument
 or common step variables such as `${TEST_STEPS}` / `${AI_STEPS}`), those steps are treated as the main flow and
@@ -354,8 +418,9 @@ source is cached per session so repeated calls do not re-fetch the same screen
 state unless a mutating Appium action succeeds or a refresh is requested.
 
 - `appium_get_view_snapshot` gives a compact screen summary with text preview and likely interruption candidates
-- `appium_get_source` and `appium_get_view_snapshot` reuse the same cached screen snapshot for better performance
+- `appium_get_source`, `appium_get_view_snapshot`, `appium_get_loading_state`, `appium_get_interactive_elements`, `appium_get_screen_structure`, and `appium_get_context_inventory` reuse the cached screen snapshot where possible
 - `appium_handle_common_interruptions` can clear common transient blockers such as permission dialogs, update prompts, onboarding/tutorial screens, and similar modal interruptions
+- High-level mobile execution can now use condition-based waits, picker selection helpers, keyboard visibility control, keycode input, context switching, and back navigation helpers instead of relying on fixed delays or raw Appium calls
 - Mobile executor prompts now explicitly allow minimal recovery steps when user-defined steps are imprecise or temporarily blocked, while preserving the current app session unless the user asked to restart it
 
 ## UI Element Scrolling

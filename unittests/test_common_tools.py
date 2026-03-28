@@ -197,12 +197,42 @@ def test_record_tool_step_invalidates_mobile_snapshot_cache(monkeypatch):
     assert invalidations == [None]
 
 
+def test_record_tool_step_invalidates_mobile_snapshot_cache_for_context_switch(monkeypatch):
+    invalidations = []
+    monkeypatch.setattr(
+        mobile_tools,
+        "invalidate_mobile_snapshot_cache",
+        lambda driver=None: invalidations.append(driver),
+    )
+    monkeypatch.setattr(common_tools, "_log_ai_step_to_rf", lambda **kwargs: None)
+
+    common_tools._record_tool_step(
+        action="appium_switch_context",
+        description="Switch to WEBVIEW",
+        status=StepStatus.PASSED,
+        duration_ms=5.0,
+    )
+
+    assert invalidations == [None]
+
+
 def test_track_ui_action_counts_mobile_swipe_and_state_checks():
     session = create_session("test", "app", test_mode="mobile", high_level_steps=["Swipe list"])
 
     common_tools._track_ui_action(session, "appium_swipe", StepStatus.PASSED)
     common_tools._track_ui_action(session, "appium_wait_until_page_contains", StepStatus.PASSED)
     common_tools._track_ui_action(session, "appium_get_source", StepStatus.PASSED)
+
+    assert session.ui_interactions_total == 1
+    assert session.ui_state_checks_total == 2
+
+
+def test_track_ui_action_counts_mobile_context_switch_and_analysis():
+    session = create_session("test", "app", test_mode="mobile", high_level_steps=["Open webview"])
+
+    common_tools._track_ui_action(session, "appium_switch_context", StepStatus.PASSED)
+    common_tools._track_ui_action(session, "appium_get_loading_state", StepStatus.PASSED)
+    common_tools._track_ui_action(session, "appium_get_context_inventory", StepStatus.PASSED)
 
     assert session.ui_interactions_total == 1
     assert session.ui_state_checks_total == 2

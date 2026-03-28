@@ -9,10 +9,12 @@ via robotframework-appiumlibrary.
 """
 
 import logging
+import time
 import xml.etree.ElementTree as ET
 from typing import Any, Dict
 from strands import tool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
+from robot.utils.robottime import timestr_to_secs
 
 from .common_tools import instrument_tool_list, _normalize_screenshot_filename
 from ..executor import get_active_session
@@ -102,8 +104,12 @@ def _build_mobile_snapshot(source: str) -> dict:
 
     text_preview = []
     interruptions = []
+    interactive_elements = []
+    loading_indicators = []
     seen_text = set()
     seen_interruptions = set()
+    seen_interactive = set()
+    seen_loading = set()
 
     def visit(node, ancestor_context: str = "") -> None:
         label = _xml_attr(
@@ -137,6 +143,24 @@ def _build_mobile_snapshot(source: str) -> dict:
                 seen_interruptions.add(key)
                 interruptions.append(candidate)
 
+        interactive = _build_mobile_interactive_element(node, label, node_context)
+        if interactive:
+            key = interactive["locator"] or (
+                interactive["kind"],
+                interactive["label"].lower(),
+                interactive["resource_id"],
+            )
+            if key not in seen_interactive and len(interactive_elements) < 80:
+                seen_interactive.add(key)
+                interactive_elements.append(interactive)
+
+        loading = _classify_mobile_loading_indicator(label, node_context, node)
+        if loading:
+            key = loading["locator"] or (loading["kind"], loading["label"].lower())
+            if key not in seen_loading and len(loading_indicators) < 8:
+                seen_loading.add(key)
+                loading_indicators.append(loading)
+
         for child in list(node):
             visit(child, node_context)
 
@@ -145,6 +169,8 @@ def _build_mobile_snapshot(source: str) -> dict:
     return {
         "text_preview": text_preview,
         "interruptions": interruptions,
+        "interactive_elements": interactive_elements,
+        "loading_indicators": loading_indicators,
         "parse_error": None,
     }
 
@@ -153,6 +179,8 @@ def _empty_mobile_snapshot() -> Dict[str, Any]:
     return {
         "text_preview": [],
         "interruptions": [],
+        "interactive_elements": [],
+        "loading_indicators": [],
         "parse_error": None,
     }
 
@@ -174,6 +202,7 @@ def _get_mobile_snapshot_data(force_refresh: bool = False) -> Dict[str, Any]:
             {
                 "source": source,
                 "context": _read_driver_value(driver, "current_context"),
+                "contexts": _read_driver_contexts(driver),
                 "activity": _read_driver_value(driver, "current_activity"),
                 "package": _read_driver_value(driver, "current_package"),
                 "platform": _read_driver_capability(
@@ -187,6 +216,7 @@ def _get_mobile_snapshot_data(force_refresh: bool = False) -> Dict[str, Any]:
                     "deviceName",
                     "appium:deviceName",
                 ),
+                "window_size": _read_driver_window_size(driver),
             }
         )
         _MOBILE_SNAPSHOT_CACHE[cache_key] = snapshot
@@ -218,6 +248,52 @@ def _read_driver_capability(driver, *keys: str) -> str:
         if lowered in normalized and normalized[lowered]:
             return str(normalized[lowered]).strip()
     return ""
+
+
+def _read_driver_contexts(driver) -> list[str]:
+    if driver is None:
+        return []
+    try:
+        contexts = getattr(driver, "contexts", None)
+        if callable(contexts):
+            contexts = contexts()
+    except Exception as exc:
+        logger.debug("Unable to read mobile contexts: %s", exc)
+        contexts = None
+
+    normalized = []
+    seen = set()
+    if isinstance(contexts, (list, tuple, set)):
+        for value in contexts:
+            item = str(value).strip()
+            if item and item not in seen:
+                normalized.append(item)
+                seen.add(item)
+
+    current_context = _read_driver_value(driver, "current_context")
+    if current_context and current_context not in seen:
+        normalized.insert(0, current_context)
+    return normalized
+
+
+def _read_driver_window_size(driver) -> Dict[str, int]:
+    if driver is None:
+        return {}
+    try:
+        raw = driver.get_window_size()
+    except Exception as exc:
+        logger.debug("Unable to read mobile window size: %s", exc)
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    try:
+        width = int(raw.get("width", 0))
+        height = int(raw.get("height", 0))
+    except (TypeError, ValueError):
+        return {}
+    if width <= 0 or height <= 0:
+        return {}
+    return {"width": width, "height": height}
 
 
 def _classify_mobile_interruption(label: str, context: str, node):
@@ -323,6 +399,141 @@ def _build_mobile_text_locator(label: str) -> str:
         + literal
         + "]"
     )
+
+
+def _build_mobile_locator(node, label: str) -> str:
+    resource_id = _xml_attr(node, "resource-id", "resourceId")
+    if resource_id:
+        return f"id={resource_id}"
+
+    accessibility = _xml_attr(
+        node,
+        "content-desc",
+        "contentDescription",
+        "label",
+        "name",
+    )
+    if accessibility:
+        return f"accessibility_id={accessibility}"
+
+    if label:
+        return _build_mobile_text_locator(label)
+
+    class_name = _xml_attr(node, "class", "type")
+    if class_name:
+        return f"class_name={class_name}"
+    return ""
+
+
+def _classify_mobile_control_kind(node, control_hint: str) -> str | None:
+    hint = control_hint.lower()
+    if any(token in hint for token in ("edittext", "textfield", "textinput", "searchview")):
+        return "input"
+    if any(token in hint for token in ("password", "secure")):
+        return "password"
+    if any(token in hint for token in ("imagebutton", "button")):
+        return "button"
+    if "switch" in hint:
+        return "switch"
+    if "checkbox" in hint or _is_true_like(node.attrib.get("checkable")):
+        return "checkbox"
+    if any(token in hint for token in ("spinner", "picker")):
+        return "picker"
+    if "tab" in hint:
+        return "tab"
+    if _is_true_like(node.attrib.get("scrollable")):
+        return "scrollable"
+    if (
+        _is_true_like(node.attrib.get("clickable"))
+        or _is_true_like(node.attrib.get("focusable"))
+        or _is_true_like(node.attrib.get("long-clickable"))
+    ):
+        return "interactive"
+    return None
+
+
+def _build_mobile_interactive_element(node, label: str, context: str):
+    control_hint = " ".join(
+        part
+        for part in [
+            node.tag,
+            _xml_attr(node, "class", "type"),
+            _xml_attr(node, "resource-id", "resourceId"),
+            _xml_attr(node, "hint"),
+            context,
+        ]
+        if part
+    )
+    kind = _classify_mobile_control_kind(node, control_hint)
+    if not kind:
+        return None
+
+    enabled_value = node.attrib.get("enabled")
+    return {
+        "kind": kind,
+        "label": label or "",
+        "locator": _build_mobile_locator(node, label),
+        "resource_id": _xml_attr(node, "resource-id", "resourceId"),
+        "class_name": _xml_attr(node, "class", "type"),
+        "hint": _xml_attr(node, "hint", "placeholder"),
+        "enabled": True if enabled_value is None else _is_true_like(enabled_value),
+        "selected": _is_true_like(node.attrib.get("selected")),
+        "checked": _is_true_like(node.attrib.get("checked")),
+    }
+
+
+def _classify_mobile_loading_indicator(label: str, context: str, node):
+    control_hint = " ".join(
+        part
+        for part in [
+            node.tag,
+            _xml_attr(node, "class", "type"),
+            _xml_attr(node, "resource-id", "resourceId"),
+            context,
+            label,
+        ]
+        if part
+    ).lower()
+
+    signals = [
+        token
+        for token in (
+            "loading",
+            "spinner",
+            "progress",
+            "please wait",
+            "processing",
+            "saving",
+            "syncing",
+            "updating",
+        )
+        if token in control_hint
+    ]
+    if not signals and not any(
+        token in control_hint
+        for token in ("progressbar", "activityindicator", "progress_bar")
+    ):
+        return None
+
+    if any(token in control_hint for token in ("progressbar", "progress_bar", "progress")):
+        kind = "progress"
+    elif any(token in control_hint for token in ("activityindicator", "spinner")):
+        kind = "spinner"
+    else:
+        kind = "loading"
+
+    indicator_label = (
+        label
+        or _xml_attr(node, "resource-id", "resourceId")
+        or _xml_attr(node, "class", "type")
+        or node.tag
+    )
+    return {
+        "kind": kind,
+        "label": indicator_label,
+        "locator": _build_mobile_locator(node, label),
+        "signals": signals or [kind],
+    }
 
 
 def _assert_application_termination_allowed(action_name: str, al=None) -> None:
@@ -441,7 +652,10 @@ def appium_background_app(seconds: int = 5) -> str:
         Confirmation message.
     """
     al = _get_appium()
-    al.background_app(seconds)
+    if hasattr(al, "background_application"):
+        al.background_application(seconds)
+    else:
+        al.background_app(seconds)
     return f"App was in background for {seconds} seconds and resumed"
 
 
@@ -456,6 +670,89 @@ def appium_reset_application() -> str:
     _assert_application_termination_allowed("appium_reset_application", al)
     al.reset_application()
     return "Application reset"
+
+
+@tool
+def appium_go_back() -> str:
+    """Navigates back in the current mobile app.
+
+    Returns:
+        Confirmation message.
+    """
+    al = _get_appium()
+    al.go_back()
+    return "Navigated back in the mobile app"
+
+
+# ---------------------------------------------------------------------------
+# Context management
+# ---------------------------------------------------------------------------
+
+def _resolve_requested_context(contexts: list[str], requested: str) -> str:
+    if not contexts:
+        raise AssertionError("No Appium contexts are available on the current session.")
+
+    requested_value = str(requested or "").strip()
+    if not requested_value:
+        raise AssertionError("Context name must not be empty.")
+
+    requested_lower = requested_value.lower()
+    for context_name in contexts:
+        if context_name.lower() == requested_lower:
+            return context_name
+
+    if requested_lower in {"native", "native_app"}:
+        for context_name in contexts:
+            if context_name.lower().startswith("native"):
+                return context_name
+
+    if requested_lower in {"web", "webview", "browser", "chromium"}:
+        for context_name in contexts:
+            lowered = context_name.lower()
+            if "webview" in lowered or "chromium" in lowered or "browser" in lowered:
+                return context_name
+
+    matches = [context_name for context_name in contexts if requested_lower in context_name.lower()]
+    if len(matches) == 1:
+        return matches[0]
+
+    available = ", ".join(contexts)
+    raise AssertionError(
+        f"Unable to match mobile context '{requested_value}'. Available contexts: {available}"
+    )
+
+
+@tool
+def appium_switch_context(context: str) -> str:
+    """Switches the active mobile driver context.
+
+    Args:
+        context: Exact or partial context name. Supports shortcuts such as
+            ``native`` and ``webview``.
+
+    Returns:
+        Confirmation message.
+    """
+    al = _get_appium()
+    driver = al._current_application()
+    contexts = _read_driver_contexts(driver)
+    target = _resolve_requested_context(contexts, context)
+    current_context = _read_driver_value(driver, "current_context")
+    if current_context == target:
+        return f"Context already active: {target}"
+
+    switch_to = getattr(driver, "switch_to", None)
+    if switch_to is not None and hasattr(switch_to, "context"):
+        switch_to.context(target)
+    elif hasattr(driver, "switch_to_context"):
+        driver.switch_to_context(target)
+    else:
+        raise AssertionError(
+            "The current Appium driver does not expose context switching support."
+        )
+
+    invalidate_mobile_snapshot_cache(driver)
+    return f"Switched mobile context to {target}"
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +825,69 @@ def appium_long_press(locator: str, duration: int = 1000) -> str:
     return f"Long pressed element: {locator} for {duration}ms"
 
 
+@tool
+def appium_select_picker_option(locator: str, option: str, timeout: str = "10s") -> str:
+    """Selects an option from a native picker, spinner, or dropdown-like control.
+
+    Args:
+        locator: Element locator for the picker trigger.
+        option: Visible option label to select.
+        timeout: Maximum time to wait for the option list.
+
+    Returns:
+        Confirmation message.
+    """
+    al = _get_appium()
+    option_locator = _select_picker_option(al, locator, option, timeout)
+    return f"Selected '{option}' from picker: {locator} via {option_locator}"
+
+
+@tool
+def appium_hide_keyboard(key_name: str = None) -> str:
+    """Hides the on-screen keyboard when it is open.
+
+    Args:
+        key_name: Optional soft-key name for platforms that require it.
+
+    Returns:
+        Confirmation message.
+    """
+    al = _get_appium()
+    if key_name:
+        al.hide_keyboard(key_name)
+    else:
+        al.hide_keyboard()
+    return "On-screen keyboard hidden"
+
+
+@tool
+def appium_is_keyboard_shown() -> str:
+    """Reports whether the on-screen keyboard is currently visible."""
+    al = _get_appium()
+    shown = bool(al.is_keyboard_shown())
+    return f"Keyboard shown: {shown}"
+
+
+@tool
+def appium_press_keycode(keycode: int, metastate: int = None, long_press: bool = False) -> str:
+    """Sends an Android keycode to the device.
+
+    Args:
+        keycode: Android keycode integer.
+        metastate: Optional Android metastate modifier.
+        long_press: Whether to long-press the key instead of a normal press.
+
+    Returns:
+        Confirmation message.
+    """
+    al = _get_appium()
+    if long_press:
+        al.long_press_keycode(keycode, metastate)
+        return f"Long-pressed Android keycode {keycode}"
+    al.press_keycode(keycode, metastate)
+    return f"Pressed Android keycode {keycode}"
+
+
 # ---------------------------------------------------------------------------
 # Gestures
 # ---------------------------------------------------------------------------
@@ -549,8 +909,103 @@ def appium_swipe(
         Confirmation message.
     """
     al = _get_appium()
-    al.swipe(start_x, start_y, offset_x, offset_y, duration)
+    al.swipe(
+        start_x=int(start_x),
+        start_y=int(start_y),
+        end_x=int(offset_x),
+        end_y=int(offset_y),
+        duration=duration,
+    )
     return f"Swiped from ({start_x},{start_y}) by offset ({offset_x},{offset_y})"
+
+
+def _perform_viewport_swipe(al, *, direction: str, locator: str = None, duration: int = 800) -> str:
+    driver = al._current_application()
+    size = _read_driver_window_size(driver)
+    if not size:
+        raise AssertionError(
+            "Unable to determine mobile viewport size for scrolling. "
+            "Ensure the Appium driver exposes get_window_size()."
+        )
+
+    center_x = int(size["width"] * 0.5)
+    start_y = int(size["height"] * 0.82)
+    end_y = int(size["height"] * 0.35)
+    if direction == "up":
+        start_y, end_y = end_y, start_y
+
+    al.swipe(
+        start_x=center_x,
+        start_y=start_y,
+        end_x=center_x,
+        end_y=end_y,
+        duration=duration,
+    )
+    if locator:
+        return f"Scrolled {direction} using viewport gesture near: {locator}"
+    return f"Scrolled {direction} using viewport gesture"
+
+
+def _parse_time_value(value, label: str) -> float:
+    try:
+        if isinstance(value, (int, float)):
+            seconds = float(value)
+        else:
+            seconds = float(timestr_to_secs(str(value)))
+    except Exception as exc:
+        raise AssertionError(
+            f"{label} must be a positive duration such as '10s' or '500ms', got '{value}'."
+        ) from exc
+    if seconds <= 0:
+        raise AssertionError(f"{label} must be greater than 0, got '{value}'.")
+    return seconds
+
+
+def _wait_until(condition, timeout: str, poll_interval: str, failure_message: str) -> None:
+    timeout_seconds = _parse_time_value(timeout, "timeout")
+    poll_seconds = _parse_time_value(poll_interval, "poll_interval")
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+
+    while True:
+        try:
+            if condition():
+                return
+            last_error = None
+        except AssertionError as exc:
+            last_error = exc
+
+        if time.monotonic() >= deadline:
+            if last_error is not None:
+                raise AssertionError(failure_message) from last_error
+            raise AssertionError(failure_message)
+        time.sleep(poll_seconds)
+
+
+def _mobile_wait_failure(detail: str, timeout: str) -> str:
+    return f"{detail} within {timeout}."
+
+
+def _select_picker_option(al, locator: str, option: str, timeout: str) -> str:
+    timeout_seconds = _parse_time_value(timeout, "timeout")
+    option_locator = _build_mobile_text_locator(option)
+
+    _maybe_scroll_into_view(al, locator)
+    al.click_element(locator)
+
+    wait_timeout = max(timeout_seconds / 2.0, 1.0)
+    try:
+        al.wait_until_page_contains_element(option_locator, wait_timeout)
+    except Exception:
+        if hasattr(al, "scroll_element_into_view"):
+            try:
+                al.scroll_element_into_view(option_locator)
+            except Exception as exc:
+                logger.debug("Unable to scroll picker option into view (%s): %s", option, exc)
+        al.wait_until_page_contains_element(option_locator, timeout_seconds)
+
+    al.click_element(option_locator)
+    return option_locator
 
 
 @tool
@@ -564,8 +1019,7 @@ def appium_scroll_down(locator: str = None) -> str:
         Confirmation message.
     """
     al = _get_appium()
-    al.swipe(500, 1500, 500, 500, 800)
-    return "Scrolled down"
+    return _perform_viewport_swipe(al, direction="down", locator=locator, duration=800)
 
 
 @tool
@@ -579,8 +1033,7 @@ def appium_scroll_up(locator: str = None) -> str:
         Confirmation message.
     """
     al = _get_appium()
-    al.swipe(500, 500, 500, 1500, 800)
-    return "Scrolled up"
+    return _perform_viewport_swipe(al, direction="up", locator=locator, duration=800)
 
 
 # ---------------------------------------------------------------------------
@@ -699,35 +1152,146 @@ def appium_page_should_not_contain_text(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 @tool
-def appium_wait_until_element_is_visible(locator: str, timeout: int = 10) -> str:
+def appium_wait_until_element_is_visible(locator: str, timeout: str = "10s") -> str:
     """Waits until a mobile element becomes visible.
 
     Args:
         locator: Element locator to wait for.
-        timeout: Maximum wait time in seconds.
+        timeout: Maximum time to wait.
 
     Returns:
         Confirmation when element becomes visible.
     """
     al = _get_appium()
-    al.wait_until_element_is_visible(locator, timeout)
+    al.wait_until_element_is_visible(locator, _parse_time_value(timeout, "timeout"))
     return f"Element is now visible: {locator}"
 
 
 @tool
-def appium_wait_until_page_contains(text: str, timeout: int = 10) -> str:
+def appium_wait_until_page_contains_element(locator: str, timeout: str = "10s") -> str:
+    """Waits until the current screen contains the specified element.
+
+    Args:
+        locator: Element locator to wait for.
+        timeout: Maximum time to wait.
+
+    Returns:
+        Confirmation when the element appears.
+    """
+    al = _get_appium()
+    al.wait_until_page_contains_element(locator, _parse_time_value(timeout, "timeout"))
+    return f"Screen now contains element: {locator}"
+
+
+@tool
+def appium_wait_until_page_contains(text: str, timeout: str = "10s") -> str:
     """Waits until the screen contains the specified text.
 
     Args:
         text: Text to wait for.
-        timeout: Maximum wait time in seconds.
+        timeout: Maximum time to wait.
 
     Returns:
         Confirmation when text appears.
     """
     al = _get_appium()
-    al.wait_until_page_contains(text, timeout)
+    al.wait_until_page_contains(text, _parse_time_value(timeout, "timeout"))
     return f"Screen now contains: '{text}'"
+
+
+@tool
+def appium_wait_until_element_is_not_visible(
+    locator: str,
+    timeout: str = "10s",
+    poll_interval: str = "500ms",
+) -> str:
+    """Waits until a mobile element is no longer visible on the current screen."""
+    al = _get_appium()
+
+    def condition():
+        al.element_should_not_be_visible(locator)
+        return True
+
+    _wait_until(
+        condition,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        failure_message=_mobile_wait_failure(
+            f"Element '{locator}' did not become hidden",
+            timeout,
+        ),
+    )
+    return f"Element is no longer visible: {locator}"
+
+
+@tool
+def appium_wait_until_page_does_not_contain(text: str, timeout: str = "10s") -> str:
+    """Waits until the current screen no longer contains the specified text."""
+    al = _get_appium()
+    al.wait_until_page_does_not_contain(text, _parse_time_value(timeout, "timeout"))
+    return f"Screen no longer contains: '{text}'"
+
+
+@tool
+def appium_wait_until_page_does_not_contain_element(locator: str, timeout: str = "10s") -> str:
+    """Waits until the current screen no longer contains the specified element."""
+    al = _get_appium()
+    al.wait_until_page_does_not_contain_element(locator, _parse_time_value(timeout, "timeout"))
+    return f"Screen no longer contains element: {locator}"
+
+
+@tool
+def appium_wait_for_loading_to_finish(
+    timeout: str = "10s",
+    poll_interval: str = "500ms",
+    stable_polls: int = 2,
+) -> str:
+    """Waits until auto-detected mobile loading indicators disappear."""
+    if stable_polls < 1:
+        raise AssertionError(f"stable_polls must be at least 1, got '{stable_polls}'.")
+
+    timeout_seconds = _parse_time_value(timeout, "timeout")
+    poll_seconds = _parse_time_value(poll_interval, "poll_interval")
+    deadline = time.monotonic() + timeout_seconds
+    clean_polls = 0
+    checks = 0
+    observed_loading = False
+
+    while True:
+        snapshot = _get_mobile_snapshot_data(force_refresh=True)
+        checks += 1
+        indicators = snapshot.get("loading_indicators") or []
+        if indicators:
+            observed_loading = True
+            clean_polls = 0
+        else:
+            clean_polls += 1
+            if clean_polls >= stable_polls:
+                if observed_loading:
+                    return (
+                        "Mobile loading indicators cleared after "
+                        f"{checks} checks (stable_polls={stable_polls})"
+                    )
+                return (
+                    "No mobile loading indicators detected; screen already stable "
+                    f"after {checks} checks"
+                )
+
+        if time.monotonic() >= deadline:
+            details = []
+            for indicator in indicators[:3]:
+                kind = indicator.get("kind", "loading")
+                label = indicator.get("label")
+                if label:
+                    details.append(f'{kind}="{label[:40]}"')
+                else:
+                    details.append(kind)
+            detail_text = ", ".join(details) if details else "none"
+            raise AssertionError(
+                "Timed out waiting for mobile loading indicators to disappear. "
+                f"Last context={snapshot.get('context', 'unknown')}, indicators={detail_text}."
+            )
+        time.sleep(poll_seconds)
 
 
 # ---------------------------------------------------------------------------
@@ -795,10 +1359,18 @@ def appium_get_view_snapshot(refresh: bool = False) -> str:
         lines.append(f"Device: {snapshot['device']}")
     if snapshot.get("context"):
         lines.append(f"Context: {snapshot['context']}")
+    if snapshot.get("contexts"):
+        lines.append("Available contexts: " + ", ".join(snapshot["contexts"]))
     if snapshot.get("activity"):
         lines.append(f"Activity: {snapshot['activity']}")
     if snapshot.get("package"):
         lines.append(f"Package: {snapshot['package']}")
+    lines.append(f"Interactive elements: {len(snapshot.get('interactive_elements', []))}")
+    loading_indicators = snapshot.get("loading_indicators", [])
+    if loading_indicators:
+        lines.append(f"Loading indicators: {len(loading_indicators)}")
+    else:
+        lines.append("Loading indicators: none")
     if snapshot.get("parse_error"):
         lines.append(f"Screen analysis note: {snapshot['parse_error']}")
     if lines:
@@ -896,10 +1468,16 @@ MOBILE_TOOLS = instrument_tool_list([
     appium_close_all_applications,
     appium_background_app,
     appium_reset_application,
+    appium_go_back,
+    appium_switch_context,
     appium_click_element,
     appium_input_text,
     appium_clear_text,
     appium_long_press,
+    appium_select_picker_option,
+    appium_hide_keyboard,
+    appium_is_keyboard_shown,
+    appium_press_keycode,
     appium_swipe,
     appium_scroll_down,
     appium_scroll_up,
@@ -911,9 +1489,12 @@ MOBILE_TOOLS = instrument_tool_list([
     appium_page_should_contain_text,
     appium_page_should_not_contain_text,
     appium_wait_until_element_is_visible,
+    appium_wait_until_page_contains_element,
     appium_wait_until_page_contains,
+    appium_wait_until_element_is_not_visible,
+    appium_wait_until_page_does_not_contain,
+    appium_wait_until_page_does_not_contain_element,
+    appium_wait_for_loading_to_finish,
     appium_capture_page_screenshot,
-    appium_get_view_snapshot,
     appium_handle_common_interruptions,
-    appium_get_source,
 ])

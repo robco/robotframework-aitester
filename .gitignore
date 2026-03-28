@@ -41,6 +41,7 @@ log.html
 report.html
 selenium-screenshot-*.png
 agentic_report_*
+log/
 
 # Testing
 .pytest_cache/

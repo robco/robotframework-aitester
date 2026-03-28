@@ -35,6 +35,15 @@ class TestGenAIProvider:
         assert provider.api_key is None
         assert provider.model_id == "llama3.3"
 
+    def test_dockermodel_uses_dummy_api_key(self):
+        provider = GenAIProvider(Platforms.DockerModel)
+        assert provider.api_key == "dummy"
+        assert "localhost" in provider.base_url
+
+    def test_dockermodel_ignores_custom_api_key(self):
+        provider = GenAIProvider(Platforms.DockerModel, api_key="custom-key")
+        assert provider.api_key == "dummy"
+
     @patch.dict(os.environ, {"OPENAI_API_KEY": "env-key-123"})
     def test_resolve_api_key_from_env(self):
         provider = GenAIProvider(Platforms.OpenAI)

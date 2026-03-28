@@ -14,44 +14,72 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from setuptools import setup, find_packages
+from pathlib import Path
+
+from setuptools import find_packages, setup
+
+BASE_DIR = Path(__file__).resolve().parent
+VERSION_NS = {"__file__": str(BASE_DIR / "AITester" / "_version.py")}
+exec((BASE_DIR / "AITester" / "_version.py").read_text(encoding="utf-8"), VERSION_NS)
 
 
-def version():
-    with open("CHANGES") as changes:
-        return changes.readline().split(",")[0]
+def read_text(*parts):
+    return BASE_DIR.joinpath(*parts).read_text(encoding="utf-8")
 
 
-def license_text():
-    with open("LICENSE") as f:
-        return f.readline()
-
-
-def readme():
+def build_long_description():
     changes_title = "\n\nVersion history\n----------------\n\n"
     formatted_changes = []
 
-    with open("CHANGES", "r") as ch:
-        for line in ch:
-            stripped_line = line.strip()
-            if stripped_line:
-                formatted_changes.append(f"- {stripped_line}")
+    for line in read_text("CHANGES").splitlines():
+        stripped_line = line.strip()
+        if stripped_line:
+            formatted_changes.append(f"- {stripped_line}")
 
-    with open("README.md", "r") as r:
-        return r.read() + changes_title + "\n".join(formatted_changes) + "\n"
+    return read_text("README.md") + changes_title + "\n".join(formatted_changes) + "\n"
 
 
 setup(
     name="robotframework-aitester",
-    version=version(),
+    version=VERSION_NS["__version__"],
     author="Róbert Malovec",
     author_email="robert@malovec.sk",
     description="Autonomous AI testing library for Robot Framework",
-    long_description=readme(),
+    long_description=build_long_description(),
     long_description_content_type="text/markdown",
     url="https://github.com/robco/robotframework-aitester",
-    packages=find_packages(),
-    python_requires=">=3.9",
+    project_urls={
+        "Documentation": "https://robco.github.io/robotframework-aitester/",
+        "Source": "https://github.com/robco/robotframework-aitester",
+        "Tracker": "https://github.com/robco/robotframework-aitester/issues",
+    },
+    packages=find_packages(exclude=("unittests", "unittests.*")),
+    python_requires=">=3.10",
+    license="Apache-2.0",
+    include_package_data=True,
+    classifiers=[
+        "Development Status :: 5 - Production/Stable",
+        "Framework :: Robot Framework",
+        "Intended Audience :: Developers",
+        "Intended Audience :: Information Technology",
+        "Operating System :: OS Independent",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3 :: Only",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Topic :: Software Development :: Testing",
+    ],
+    keywords=[
+        "robotframework",
+        "testing",
+        "ai",
+        "automation",
+        "selenium",
+        "appium",
+        "api-testing",
+    ],
     install_requires=[
         "robotframework>=6.0",
         "strands-agents[ollama,gemini]>=1.29.0",
@@ -62,9 +90,9 @@ setup(
     extras_require={
         "web": ["robotframework-seleniumlibrary>=7.0"],
         "api": ["robotframework-requests>=0.9"],
-        "mobile": ["robotframework-appiumlibrary>=3.0"],
+        "mobile": ["robotframework-appiumlibrary>=3.2.0"],
         "all": [
-            "robotframework-seleniumlibrary>=6.8.0",
+            "robotframework-seleniumlibrary>=7.0",
             "robotframework-requests>=0.9",
             "robotframework-appiumlibrary>=3.2.0",
         ],
@@ -77,5 +105,5 @@ setup(
             "pytest-mock>=3.0",
             "flake8",
         ],
-    }
+    },
 )

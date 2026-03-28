@@ -39,6 +39,7 @@ from .tools.api_tools import API_TOOLS
 from .tools.mobile_tools import MOBILE_TOOLS
 from .tools.common_tools import COMMON_TOOLS
 from .tools.browser_analysis_tools import BROWSER_ANALYSIS_TOOLS
+from .tools.mobile_analysis_tools import MOBILE_ANALYSIS_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ class AgentOrchestrator:
         # ---- Mobile Executor Agent ----
         mobile_tools = []
         if "AppiumLibrary" in self.available_libraries:
-            mobile_tools = MOBILE_TOOLS + COMMON_TOOLS
+            mobile_tools = MOBILE_TOOLS + MOBILE_ANALYSIS_TOOLS + COMMON_TOOLS
         self.mobile_executor = Agent(
             system_prompt=MOBILE_EXECUTOR_PROMPT,
             model=self.model,
@@ -347,11 +348,11 @@ class AgentOrchestrator:
         elif mode == "mobile":
             rules.append(
                 "6. When the current screen is unclear, inspect it with "
-                "`appium_get_view_snapshot` first and fall back to "
-                "`appium_get_source` only when more detail is needed. If the "
-                "app is blocked by a permission, tutorial, or update "
-                "dialog, use `appium_handle_common_interruptions` before "
-                "retrying the target action."
+                "`appium_get_view_snapshot`, `appium_get_interactive_elements`, "
+                "and `appium_get_loading_state` first, and fall back to "
+                "`appium_get_source` only when more XML detail is needed. If the "
+                "app is blocked by a permission, tutorial, or update dialog, use "
+                "`appium_handle_common_interruptions` before retrying the target action."
             )
             rules.append(
                 "7. Simulate a normal user on the current device. Continue "
@@ -360,7 +361,22 @@ class AgentOrchestrator:
                 "relaunching the app to skip ahead."
             )
             rules.append(
-                "8. Preserve any open mobile session. Do not close, reset, "
+                "8. Prefer state-based waits such as "
+                "`appium_wait_until_page_contains_element`, "
+                "`appium_wait_until_element_is_not_visible`, and "
+                "`appium_wait_for_loading_to_finish` instead of fixed sleeps. "
+                "Use `appium_select_picker_option` for native picker or spinner "
+                "controls, `appium_hide_keyboard` or `appium_press_keycode` when "
+                "the soft keyboard blocks the flow, and `appium_go_back` for "
+                "true back-navigation."
+            )
+            rules.append(
+                "9. For hybrid apps, inspect `appium_get_context_inventory` and "
+                "use `appium_switch_context` when the target UI lives in a "
+                "WEBVIEW context instead of native views."
+            )
+            rules.append(
+                "10. Preserve any open mobile session. Do not close, reset, "
                 "or relaunch the application as a recovery step unless the "
                 "user explicitly requested that action."
             )
