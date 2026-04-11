@@ -204,6 +204,31 @@ def test_finalize_session_allows_recovered_high_level_step():
     assert session.status == SessionStatus.COMPLETED
 
 
+def test_finalize_session_fails_when_manual_intervention_requested():
+    tester = AITester()
+
+    session = create_session(
+        objective="Test",
+        app_context="App",
+        test_mode="web",
+        max_iterations=1,
+        high_level_steps=["Complete MFA"],
+    )
+    session.manual_interventions.append(
+        {
+            "reason": "Complete MFA",
+            "details": "Awaiting OTP approval",
+            "screenshot_path": "/tmp/manual.png",
+            "step_number": 1,
+        }
+    )
+
+    tester._finalize_session(session)
+
+    assert session.status == SessionStatus.FAILED
+    assert any("Manual intervention was requested" in item for item in session.errors)
+
+
 def test_extract_user_defined_steps_from_numbered_list():
     tester = AITester()
     steps_list = [

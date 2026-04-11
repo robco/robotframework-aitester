@@ -19,6 +19,7 @@ from .common_tools import instrument_tool_list
 
 logger = logging.getLogger(__name__)
 _PAGE_SNAPSHOT_CACHE: Dict[str, Dict[str, Any]] = {}
+_PAGE_SNAPSHOT_TRANSFORMS = []
 
 
 def _get_selenium():
@@ -50,6 +51,17 @@ def invalidate_page_snapshot_cache(driver=None) -> None:
         _PAGE_SNAPSHOT_CACHE.clear()
         return
     _PAGE_SNAPSHOT_CACHE.pop(_get_snapshot_cache_key(driver), None)
+
+
+def register_page_snapshot_transform(transformer) -> None:
+    """Register a callable that can redact or enrich page snapshots."""
+    if callable(transformer):
+        _PAGE_SNAPSHOT_TRANSFORMS.append(transformer)
+
+
+def clear_page_snapshot_transforms() -> None:
+    """Remove all registered page snapshot transforms."""
+    _PAGE_SNAPSHOT_TRANSFORMS.clear()
 
 
 def _build_page_snapshot(driver) -> Dict[str, Any]:
@@ -836,8 +848,136 @@ def _get_page_snapshot_data(force_refresh: bool = False) -> Dict[str, Any]:
     driver = sl.driver
     cache_key = _get_snapshot_cache_key(driver)
     if force_refresh or cache_key not in _PAGE_SNAPSHOT_CACHE:
-        _PAGE_SNAPSHOT_CACHE[cache_key] = _build_page_snapshot(driver)
+        _PAGE_SNAPSHOT_CACHE[cache_key] = _annotate_page_snapshot(_build_page_snapshot(driver))
     return _PAGE_SNAPSHOT_CACHE[cache_key]
+
+
+def _annotate_page_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    interactive = list(snapshot.get("interactive_elements", []) or [])
+    for index, element in enumerate(interactive, start=1):
+        element.setdefault("snapshot_id", f"el-{index}")
+
+    forms = list(snapshot.get("forms", []) or [])
+    for form_index, form in enumerate(forms, start=1):
+        form.setdefault("snapshot_id", f"form-{form_index}")
+        fields = list(form.get("form_fields", []) or [])
+        for field_index, field in enumerate(fields, start=1):
+            field.setdefault("snapshot_id", f"field-{form_index}-{field_index}")
+
+    return _apply_page_snapshot_transforms(snapshot)
+
+
+def _apply_page_snapshot_transforms(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    current = snapshot
+    for transform in _PAGE_SNAPSHOT_TRANSFORMS:
+        try:
+            transformed = transform(current)
+            if transformed is not None:
+                current = transformed
+        except Exception as exc:
+            logger.warning("Page snapshot transform failed: %s", exc)
+    return current
+
+
+def _text_candidates(*values) -> list[str]:
+    results = []
+    seen = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        results.append(text)
+    return results
+
+
+def _match_snapshot_reference(reference: str, candidates: list[str]) -> bool:
+    ref = str(reference or "").strip().lower()
+    if not ref:
+        return False
+    for candidate in candidates:
+        normalized = candidate.lower()
+        if ref == normalized or ref in normalized:
+            return True
+    return False
+
+
+def _resolve_snapshot_interactive_element(
+    snapshot: Dict[str, Any],
+    reference: str,
+) -> Dict[str, Any] | None:
+    reference = str(reference or "").strip()
+    if not reference:
+        return None
+
+    interactive = list(snapshot.get("interactive_elements", []) or [])
+    for element in interactive:
+        if reference == element.get("snapshot_id"):
+            return element
+        if reference == element.get("locator"):
+            return element
+
+    for element in interactive:
+        candidates = _text_candidates(
+            element.get("text"),
+            element.get("placeholder"),
+            element.get("aria-label"),
+            element.get("name"),
+            element.get("id"),
+            element.get("href"),
+            element.get("selected_text"),
+        )
+        if _match_snapshot_reference(reference, candidates):
+            return element
+    return None
+
+
+def _resolve_snapshot_form_field(
+    snapshot: Dict[str, Any],
+    reference: str,
+) -> Dict[str, Any] | None:
+    reference = str(reference or "").strip()
+    if not reference:
+        return None
+
+    for form in snapshot.get("forms", []) or []:
+        for field in form.get("form_fields", []) or []:
+            if reference == field.get("snapshot_id"):
+                return field
+            if reference == field.get("locator"):
+                return field
+            candidates = _text_candidates(
+                field.get("label"),
+                field.get("placeholder"),
+                field.get("name"),
+                field.get("id"),
+                field.get("selected_text"),
+            )
+            if _match_snapshot_reference(reference, candidates):
+                return field
+    return None
+
+
+def resolve_snapshot_target(
+    reference: str,
+    *,
+    snapshot: Dict[str, Any] | None = None,
+    force_refresh: bool = False,
+) -> Dict[str, Any]:
+    snapshot = snapshot or _get_page_snapshot_data(force_refresh=force_refresh)
+    target = _resolve_snapshot_interactive_element(snapshot, reference)
+    if target:
+        return target
+    target = _resolve_snapshot_form_field(snapshot, reference)
+    if target:
+        return target
+    raise AssertionError(
+        f"No page snapshot target matched '{reference}'. "
+        "Use get_interactive_elements or get_form_fields to inspect available snapshot IDs."
+    )
 
 
 def _format_interactive_elements(elements) -> str:
@@ -847,7 +987,7 @@ def _format_interactive_elements(elements) -> str:
         tag = element.get("tag", "?")
         text = element.get("text", "")[:50]
         element_type = element.get("type", "")
-        description = f"  {index}. <{tag}"
+        description = f"  {index}. id={element.get('snapshot_id', '?')} <{tag}"
         if element_type:
             description += f" type={element_type}"
         description += f"> locator={locator}"
@@ -1037,6 +1177,15 @@ def get_page_snapshot(refresh: bool = False) -> str:
     lines.append("Text preview:")
     lines.append(snapshot.get("text", "")[:500] or "<empty>")
     lines.append("")
+    if snapshot.get("interactive_elements"):
+        lines.append(
+            "Interactive element IDs: "
+            + ", ".join(
+                element.get("snapshot_id", "?")
+                for element in snapshot.get("interactive_elements", [])[:8]
+            )
+        )
+        lines.append("")
     lines.extend(_format_frames(snapshot.get("frames", [])[:5]))
     lines.append("")
     lines.extend(_format_loading_indicators(snapshot))
@@ -1237,7 +1386,9 @@ def get_form_fields(form_locator: str = "css=form") -> str:
             field_type = f"{field_type}/{control_kind}"
         label = field.get("label") or field.get("placeholder") or ""
         required = " [REQUIRED]" if field.get("required") else ""
-        lines.append(f"  - {name} ({field_type}){required}: {label}")
+        lines.append(
+            f"  - id={field.get('snapshot_id', '?')} {name} ({field_type}){required}: {label}"
+        )
         selected_text = field.get("selected_text")
         if selected_text:
             lines.append(f"    selected: {selected_text[:80]}")

@@ -54,6 +54,7 @@ class DummyAppium:
     def __init__(self, sources, contexts=None, current_context="NATIVE_APP", window_size=None):
         self._sources = list(sources)
         self.clicked = []
+        self.typed = []
         self.source_calls = 0
         self.closed = 0
         self.closed_all = 0
@@ -64,11 +65,14 @@ class DummyAppium:
         self.keyboard_shown = False
         self.keycodes = []
         self.long_keycodes = []
+        self.text_values = {}
         self.waited_page_contains_element = []
         self.waited_page_does_not_contain = []
         self.waited_page_does_not_contain_element = []
         self.element_hidden_checks = 0
         self.hide_after = 0
+        self.visible_checks = []
+        self.contains_checks = []
         self._driver = DummyDriver(
             contexts=contexts,
             current_context=current_context,
@@ -83,6 +87,12 @@ class DummyAppium:
 
     def click_element(self, locator):
         self.clicked.append(locator)
+
+    def input_text(self, locator, text):
+        self.typed.append((locator, text))
+
+    def clear_text(self, locator):
+        self.clicked.append(f"clear:{locator}")
 
     def _current_application(self):
         return self._driver
@@ -122,6 +132,15 @@ class DummyAppium:
 
     def wait_until_page_does_not_contain_element(self, locator, timeout, error=None):
         self.waited_page_does_not_contain_element.append((locator, timeout))
+
+    def get_text(self, locator):
+        return self.text_values.get(locator, "")
+
+    def element_should_be_visible(self, locator):
+        self.visible_checks.append(locator)
+
+    def element_should_contain_text(self, locator, expected):
+        self.contains_checks.append((locator, expected))
 
     def element_should_not_be_visible(self, locator):
         self.element_hidden_checks += 1
@@ -349,6 +368,72 @@ def test_appium_select_picker_option_clicks_trigger_then_option(monkeypatch):
     assert dummy.waited_page_contains_element == [(option_locator, 5.0)]
 
 
+def test_appium_click_snapshot_element_uses_resolved_locator(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+    monkeypatch.setattr(mobile_tools, "_maybe_scroll_into_view", lambda al, locator: None)
+    monkeypatch.setattr(
+        mobile_tools,
+        "resolve_mobile_snapshot_target",
+        lambda reference, force_refresh=False: {
+            "snapshot_id": "mob-2",
+            "locator": "id=continue",
+            "label": "Continue",
+        },
+    )
+
+    result = mobile_tools.appium_click_snapshot_element("mob-2")
+
+    assert result == "Tapped snapshot target mob-2: Continue via id=continue"
+    assert dummy.clicked == ["id=continue"]
+
+
+def test_appium_input_text_by_snapshot_clears_then_types(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+    monkeypatch.setattr(mobile_tools, "_maybe_scroll_into_view", lambda al, locator: None)
+    monkeypatch.setattr(
+        mobile_tools,
+        "resolve_mobile_snapshot_target",
+        lambda reference, force_refresh=False: {
+            "snapshot_id": "mob-3",
+            "locator": "id=email",
+            "hint": "Email",
+        },
+    )
+
+    result = mobile_tools.appium_input_text_by_snapshot("mob-3", "robot@example.test")
+
+    assert "Typed 'robot@example.test' into snapshot target mob-3" in result
+    assert dummy.clicked == ["clear:id=email"]
+    assert dummy.typed == [("id=email", "robot@example.test")]
+
+
+def test_appium_assert_snapshot_text_supports_contains_and_equals(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    dummy = DummyAppium([EMPTY_SOURCE])
+    dummy.text_values["id=status"] = "Open"
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+    monkeypatch.setattr(
+        mobile_tools,
+        "resolve_mobile_snapshot_target",
+        lambda reference, force_refresh=False: {
+            "snapshot_id": "mob-4",
+            "locator": "id=status",
+            "label": "Status",
+        },
+    )
+
+    contains = mobile_tools.appium_assert_snapshot_text("mob-4", "Open")
+    equals = mobile_tools.appium_assert_snapshot_text("mob-4", "Open", match_type="equals")
+
+    assert "text contains 'Open'" in contains
+    assert "text equals 'Open'" in equals
+    assert dummy.contains_checks == [("id=status", "Open")]
+
+
 def test_appium_wait_until_page_contains_element_passes_timeout(monkeypatch):
     mobile_tools.invalidate_mobile_snapshot_cache()
     dummy = DummyAppium([EMPTY_SOURCE])
@@ -440,3 +525,18 @@ def test_appium_wait_for_loading_to_finish_uses_snapshot_until_stable(monkeypatc
     result = mobile_tools.appium_wait_for_loading_to_finish()
 
     assert result == "Mobile loading indicators cleared after 3 checks (stable_polls=2)"
+
+
+def test_mobile_snapshot_transforms_are_applied(monkeypatch):
+    mobile_tools.invalidate_mobile_snapshot_cache()
+    mobile_tools.clear_mobile_snapshot_transforms()
+    mobile_tools.register_mobile_snapshot_transform(
+        lambda snapshot: {**snapshot, "context": "MASKED_CONTEXT"}
+    )
+    dummy = DummyAppium([EMPTY_SOURCE])
+    monkeypatch.setattr(mobile_tools, "_get_appium", lambda: dummy)
+    try:
+        snapshot = mobile_tools.appium_get_view_snapshot()
+        assert "Context: MASKED_CONTEXT" in snapshot
+    finally:
+        mobile_tools.clear_mobile_snapshot_transforms()

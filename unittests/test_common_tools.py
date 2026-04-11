@@ -279,3 +279,56 @@ def test_ensure_screenshot_in_output_dir_reuses_cached_copy(tmp_path, monkeypatc
     assert first_target == second_target
     assert os.path.exists(first_target)
     assert len(copy_calls) == 1
+
+
+def test_get_execution_observations_reports_loop_risk_for_web(monkeypatch):
+    session = create_session("test", "app", test_mode="web", max_iterations=6)
+    session.iterations_used = 4
+    session.current_high_level_step = 1
+    session.current_high_level_step_description = "Submit checkout"
+    session.action_history = [
+        "selenium_click_snapshot_element|passed|click checkout",
+        "selenium_click_snapshot_element|passed|click checkout",
+        "selenium_click_snapshot_element|passed|click checkout",
+        "selenium_click_snapshot_element|passed|click checkout",
+    ]
+    set_active_session(session)
+    try:
+        monkeypatch.setattr(
+            browser_analysis_tools,
+            "_get_page_snapshot_data",
+            lambda force_refresh=False: {
+                "title": "Checkout",
+                "url": "https://example.test/checkout",
+                "interactive_elements": [{"snapshot_id": "el-1"}],
+                "possible_blockers": [],
+                "loading_indicators": [],
+            },
+        )
+        result = common_tools.get_execution_observations()
+
+        assert "Iteration budget: used=4, max=6, remaining=2" in result
+        assert "Loop risk: Repeated the same action 4 times in a row" in result
+        assert 'Page="Checkout"' in result
+    finally:
+        set_active_session(None)
+
+
+def test_request_manual_intervention_records_session_and_raises(monkeypatch, active_session):
+    monkeypatch.setattr(
+        common_tools,
+        "_capture_manual_intervention_screenshot",
+        lambda session: "/tmp/manual.png",
+    )
+
+    with pytest.raises(AssertionError, match="Manual intervention required: Complete MFA"):
+        common_tools.request_manual_intervention("Complete MFA", "Awaiting OTP")
+
+    assert active_session.manual_interventions == [
+        {
+            "reason": "Complete MFA",
+            "details": "Awaiting OTP",
+            "screenshot_path": "/tmp/manual.png",
+            "step_number": None,
+        }
+    ]

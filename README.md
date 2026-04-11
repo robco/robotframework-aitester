@@ -30,10 +30,12 @@ one on its own.
 - Supervisor orchestration remains available internally as a fallback path for unsupported or custom execution flows.
 - Instrumented tool bridge records step status, duration, assertion details, and screenshot references, surfacing them in RF logs via the `AI Step` keyword.
 - Browser analysis tools share a cached `get_page_snapshot` view and derive interactive elements, page structure, form fields, links, text content, and console errors from that shared page state.
+- Browser snapshots now expose stable per-snapshot element IDs, enabling semantic actions such as snapshot-based click, input, select, and assertions instead of raw locator guessing.
 - Mobile analysis tools now reuse a cached Appium source snapshot across screen-summary and source-inspection calls until the UI changes.
+- Mobile screen snapshots now expose stable per-snapshot element IDs, enabling the same semantic action pattern for native and hybrid flows.
 - Mobile runs now include higher-level Appium helpers for loading waits, picker selection, keyboard control, context switching, and back navigation.
 - Web and mobile executors can add minimal recovery actions when the requested flow is blocked by cookie banners, consent modals, permission dialogs, tutorials, or similar transient UI interruptions. For web runs, cookie/consent banners are accepted by default unless the user explicitly says otherwise.
-- Utility tools provide assertions, JSON parsing, timing, RF variable access, and optional AIVision screenshot analysis.
+- Utility tools provide assertions, JSON parsing, timing, RF variable access, execution observations, manual-intervention escalation, and optional AIVision screenshot analysis.
 - RF built-in reporting with embedded screenshots, cached screenshot artifacts, and high-level step grouping when user-defined steps are provided.
 
 ## Keywords Documentation

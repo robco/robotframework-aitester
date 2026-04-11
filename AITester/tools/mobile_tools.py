@@ -21,6 +21,7 @@ from ..executor import get_active_session
 
 logger = logging.getLogger(__name__)
 _MOBILE_SNAPSHOT_CACHE: Dict[str, Dict[str, Any]] = {}
+_MOBILE_SNAPSHOT_TRANSFORMS = []
 
 
 def _get_appium():
@@ -59,6 +60,17 @@ def invalidate_mobile_snapshot_cache(driver=None) -> None:
         _MOBILE_SNAPSHOT_CACHE.clear()
         return
     _MOBILE_SNAPSHOT_CACHE.pop(_get_snapshot_cache_key(driver), None)
+
+
+def register_mobile_snapshot_transform(transformer) -> None:
+    """Register a callable that can redact or enrich mobile snapshots."""
+    if callable(transformer):
+        _MOBILE_SNAPSHOT_TRANSFORMS.append(transformer)
+
+
+def clear_mobile_snapshot_transforms() -> None:
+    """Remove all registered mobile snapshot transforms."""
+    _MOBILE_SNAPSHOT_TRANSFORMS.clear()
 
 
 def _maybe_scroll_into_view(al, locator: str) -> None:
@@ -219,8 +231,101 @@ def _get_mobile_snapshot_data(force_refresh: bool = False) -> Dict[str, Any]:
                 "window_size": _read_driver_window_size(driver),
             }
         )
-        _MOBILE_SNAPSHOT_CACHE[cache_key] = snapshot
+        _MOBILE_SNAPSHOT_CACHE[cache_key] = _annotate_mobile_snapshot(snapshot)
     return _MOBILE_SNAPSHOT_CACHE[cache_key]
+
+
+def _annotate_mobile_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    interactive = list(snapshot.get("interactive_elements", []) or [])
+    for index, element in enumerate(interactive, start=1):
+        element.setdefault("snapshot_id", f"mob-{index}")
+    interruptions = list(snapshot.get("interruptions", []) or [])
+    for index, item in enumerate(interruptions, start=1):
+        item.setdefault("snapshot_id", f"intr-{index}")
+    return _apply_mobile_snapshot_transforms(snapshot)
+
+
+def _apply_mobile_snapshot_transforms(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    current = snapshot
+    for transform in _MOBILE_SNAPSHOT_TRANSFORMS:
+        try:
+            transformed = transform(current)
+            if transformed is not None:
+                current = transformed
+        except Exception as exc:
+            logger.warning("Mobile snapshot transform failed: %s", exc)
+    return current
+
+
+def _text_candidates(*values) -> list[str]:
+    results = []
+    seen = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        results.append(text)
+    return results
+
+
+def _match_snapshot_reference(reference: str, candidates: list[str]) -> bool:
+    ref = str(reference or "").strip().lower()
+    if not ref:
+        return False
+    for candidate in candidates:
+        normalized = candidate.lower()
+        if ref == normalized or ref in normalized:
+            return True
+    return False
+
+
+def resolve_mobile_snapshot_target(
+    reference: str,
+    *,
+    snapshot: Dict[str, Any] | None = None,
+    force_refresh: bool = False,
+) -> Dict[str, Any]:
+    snapshot = snapshot or _get_mobile_snapshot_data(force_refresh=force_refresh)
+    reference = str(reference or "").strip()
+    if not reference:
+        raise AssertionError("Snapshot reference must not be empty.")
+
+    interactive = list(snapshot.get("interactive_elements", []) or [])
+    for item in interactive:
+        if reference == item.get("snapshot_id") or reference == item.get("locator"):
+            return item
+
+    for item in interactive:
+        candidates = _text_candidates(
+            item.get("label"),
+            item.get("hint"),
+            item.get("resource_id"),
+            item.get("class_name"),
+            item.get("locator"),
+        )
+        if _match_snapshot_reference(reference, candidates):
+            return item
+
+    raise AssertionError(
+        f"No mobile snapshot target matched '{reference}'. "
+        "Use appium_get_interactive_elements to inspect available snapshot IDs."
+    )
+
+
+def _snapshot_target_label(target: dict) -> str:
+    return (
+        target.get("label")
+        or target.get("hint")
+        or target.get("resource_id")
+        or target.get("class_name")
+        or target.get("locator")
+        or target.get("snapshot_id")
+        or "snapshot target"
+    )
 
 
 def _read_driver_value(driver, attr_name: str) -> str:
@@ -843,6 +948,74 @@ def appium_select_picker_option(locator: str, option: str, timeout: str = "10s")
 
 
 @tool
+def appium_click_snapshot_element(reference: str, refresh: bool = False) -> str:
+    """Taps a mobile control resolved from the structured screen snapshot."""
+    al = _get_appium()
+    target = resolve_mobile_snapshot_target(reference, force_refresh=bool(refresh))
+    locator = target.get("locator")
+    if not locator:
+        raise AssertionError(
+            f"Snapshot target '{reference}' does not expose an Appium locator."
+        )
+    _maybe_scroll_into_view(al, locator)
+    al.click_element(locator)
+    return (
+        f"Tapped snapshot target {target.get('snapshot_id', '?')}: "
+        f"{_snapshot_target_label(target)} via {locator}"
+    )
+
+
+@tool
+def appium_input_text_by_snapshot(
+    reference: str,
+    text: str,
+    clear_first: bool = True,
+    refresh: bool = False,
+) -> str:
+    """Types into an input resolved from the structured mobile snapshot."""
+    al = _get_appium()
+    target = resolve_mobile_snapshot_target(reference, force_refresh=bool(refresh))
+    locator = target.get("locator")
+    if not locator:
+        raise AssertionError(
+            f"Snapshot target '{reference}' does not expose an Appium locator."
+        )
+    _maybe_scroll_into_view(al, locator)
+    if clear_first:
+        try:
+            al.clear_text(locator)
+        except Exception as exc:
+            logger.debug("Unable to clear snapshot target %s before typing: %s", locator, exc)
+    al.input_text(locator, text)
+    return (
+        f"Typed '{text}' into snapshot target {target.get('snapshot_id', '?')}: "
+        f"{_snapshot_target_label(target)} via {locator}"
+    )
+
+
+@tool
+def appium_select_picker_option_by_snapshot(
+    reference: str,
+    option: str,
+    timeout: str = "10s",
+    refresh: bool = False,
+) -> str:
+    """Selects a picker option using a control resolved from the screen snapshot."""
+    al = _get_appium()
+    target = resolve_mobile_snapshot_target(reference, force_refresh=bool(refresh))
+    locator = target.get("locator")
+    if not locator:
+        raise AssertionError(
+            f"Snapshot target '{reference}' does not expose an Appium locator."
+        )
+    option_locator = _select_picker_option(al, locator, option, timeout)
+    return (
+        f"Selected '{option}' from snapshot target {target.get('snapshot_id', '?')}: "
+        f"{_snapshot_target_label(target)} via {option_locator}"
+    )
+
+
+@tool
 def appium_hide_keyboard(key_name: str = None) -> str:
     """Hides the on-screen keyboard when it is open.
 
@@ -1087,6 +1260,23 @@ def appium_element_should_be_visible(locator: str) -> str:
 
 
 @tool
+def appium_assert_snapshot_visible(reference: str, refresh: bool = False) -> str:
+    """Asserts that a snapshot-resolved mobile control is visible."""
+    al = _get_appium()
+    target = resolve_mobile_snapshot_target(reference, force_refresh=bool(refresh))
+    locator = target.get("locator")
+    if not locator:
+        raise AssertionError(
+            f"Snapshot target '{reference}' does not expose an Appium locator."
+        )
+    al.element_should_be_visible(locator)
+    return (
+        f"PASS: Snapshot target {target.get('snapshot_id', '?')} is visible: "
+        f"{_snapshot_target_label(target)} via {locator}"
+    )
+
+
+@tool
 def appium_element_should_not_be_visible(locator: str) -> str:
     """Asserts that a mobile element is NOT visible on the screen.
 
@@ -1115,6 +1305,40 @@ def appium_element_should_contain_text(locator: str, expected: str) -> str:
     al = _get_appium()
     al.element_should_contain_text(locator, expected)
     return f"PASS: Element {locator} contains '{expected}'"
+
+
+@tool
+def appium_assert_snapshot_text(
+    reference: str,
+    expected: str,
+    match_type: str = "contains",
+    refresh: bool = False,
+) -> str:
+    """Asserts text for a snapshot-resolved mobile control."""
+    al = _get_appium()
+    target = resolve_mobile_snapshot_target(reference, force_refresh=bool(refresh))
+    locator = target.get("locator")
+    if not locator:
+        raise AssertionError(
+            f"Snapshot target '{reference}' does not expose an Appium locator."
+        )
+    normalized_match = str(match_type or "contains").strip().lower()
+    if normalized_match == "equals":
+        actual = al.get_text(locator)
+        if str(actual) != str(expected):
+            raise AssertionError(
+                f"Expected exact text '{expected}' for {locator}, got '{actual}'."
+            )
+    elif normalized_match == "contains":
+        al.element_should_contain_text(locator, expected)
+    else:
+        raise AssertionError(
+            f"Unsupported match_type '{match_type}'. Use 'contains' or 'equals'."
+        )
+    return (
+        f"PASS: Snapshot target {target.get('snapshot_id', '?')} text {normalized_match} "
+        f"'{expected}': {_snapshot_target_label(target)} via {locator}"
+    )
 
 
 @tool
@@ -1376,6 +1600,15 @@ def appium_get_view_snapshot(refresh: bool = False) -> str:
     if lines:
         lines.append("")
 
+    interactive_ids = [
+        item.get("snapshot_id")
+        for item in snapshot.get("interactive_elements", [])[:8]
+        if item.get("snapshot_id")
+    ]
+    if interactive_ids:
+        lines.append("Interactive element IDs: " + ", ".join(interactive_ids))
+        lines.append("")
+
     lines.append("Screen text preview:")
     preview = snapshot["text_preview"][:10]
     if preview:
@@ -1475,6 +1708,9 @@ MOBILE_TOOLS = instrument_tool_list([
     appium_clear_text,
     appium_long_press,
     appium_select_picker_option,
+    appium_click_snapshot_element,
+    appium_input_text_by_snapshot,
+    appium_select_picker_option_by_snapshot,
     appium_hide_keyboard,
     appium_is_keyboard_shown,
     appium_press_keycode,
@@ -1484,8 +1720,10 @@ MOBILE_TOOLS = instrument_tool_list([
     appium_get_text,
     appium_get_element_attribute,
     appium_element_should_be_visible,
+    appium_assert_snapshot_visible,
     appium_element_should_not_be_visible,
     appium_element_should_contain_text,
+    appium_assert_snapshot_text,
     appium_page_should_contain_text,
     appium_page_should_not_contain_text,
     appium_wait_until_element_is_visible,

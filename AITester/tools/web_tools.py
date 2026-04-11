@@ -19,6 +19,7 @@ from .common_tools import instrument_tool_list, _normalize_screenshot_filename
 from .browser_analysis_tools import (
     _get_page_snapshot_data,
     invalidate_page_snapshot_cache,
+    resolve_snapshot_target,
 )
 from ..executor import get_active_session
 
@@ -105,6 +106,29 @@ def _get_dropdown_profile(driver, element) -> dict:
         };
         """,
         element,
+    )
+
+
+def _resolve_snapshot_locator(reference: str, *, force_refresh: bool = False) -> dict:
+    target = resolve_snapshot_target(reference, force_refresh=force_refresh)
+    locator = target.get("locator")
+    if not locator:
+        raise AssertionError(
+            f"Snapshot target '{reference}' does not expose a Selenium locator."
+        )
+    return target
+
+
+def _snapshot_target_label(target: dict) -> str:
+    return (
+        target.get("text")
+        or target.get("label")
+        or target.get("placeholder")
+        or target.get("name")
+        or target.get("id")
+        or target.get("locator")
+        or target.get("snapshot_id")
+        or "snapshot target"
     )
 
 
@@ -866,6 +890,119 @@ def selenium_select_option(
 
 
 @tool
+def selenium_click_snapshot_element(reference: str, refresh: bool = False) -> str:
+    """Clicks an element resolved from the cached page snapshot.
+
+    Args:
+        reference: Preferred snapshot ID from ``get_interactive_elements`` or a
+            fallback label/locator reference.
+        refresh: Whether to refresh the page snapshot before resolving.
+
+    Returns:
+        Confirmation message with the resolved locator.
+    """
+    sl = _get_selenium()
+    target = _resolve_snapshot_locator(reference, force_refresh=bool(refresh))
+    locator = target["locator"]
+    _maybe_scroll_into_view(sl, locator)
+    sl.click_element(locator)
+    return (
+        f"Clicked snapshot target {target.get('snapshot_id', '?')}: "
+        f"{_snapshot_target_label(target)} via {locator}"
+    )
+
+
+@tool
+def selenium_input_text_by_snapshot(
+    reference: str,
+    text: str,
+    clear_first: bool = True,
+    refresh: bool = False,
+) -> str:
+    """Types text into a form control resolved from the page snapshot."""
+    sl = _get_selenium()
+    target = _resolve_snapshot_locator(reference, force_refresh=bool(refresh))
+    locator = target["locator"]
+    _maybe_scroll_into_view(sl, locator)
+    if clear_first:
+        try:
+            sl.clear_element_text(locator)
+        except Exception as exc:
+            logger.debug("Unable to clear snapshot target %s before typing: %s", locator, exc)
+    sl.input_text(locator, text)
+    return (
+        f"Typed '{text}' into snapshot target {target.get('snapshot_id', '?')}: "
+        f"{_snapshot_target_label(target)} via {locator}"
+    )
+
+
+@tool
+def selenium_select_option_by_snapshot(
+    reference: str,
+    option: str,
+    by: str = "label",
+    timeout: str = "5s",
+    refresh: bool = False,
+) -> str:
+    """Selects an option in a dropdown resolved from the page snapshot."""
+    target = _resolve_snapshot_locator(reference, force_refresh=bool(refresh))
+    locator = target["locator"]
+    normalized_by = str(by or "label").strip().lower()
+    sl = _get_selenium()
+    if normalized_by == "label":
+        _select_option(sl, locator, label=option, timeout=timeout)
+    elif normalized_by == "value":
+        _select_option(sl, locator, value=option, timeout=timeout)
+    else:
+        raise AssertionError(
+            f"Unsupported selection mode '{by}'. Use 'label' or 'value'."
+        )
+    return (
+        f"Selected '{option}' from snapshot target {target.get('snapshot_id', '?')} "
+        f"({normalized_by}): {_snapshot_target_label(target)} via {locator}"
+    )
+
+
+@tool
+def selenium_assert_snapshot_visible(reference: str, refresh: bool = False) -> str:
+    """Asserts that a snapshot-resolved element is visible."""
+    sl = _get_selenium()
+    target = _resolve_snapshot_locator(reference, force_refresh=bool(refresh))
+    locator = target["locator"]
+    sl.element_should_be_visible(locator)
+    return (
+        f"PASS: Snapshot target {target.get('snapshot_id', '?')} is visible: "
+        f"{_snapshot_target_label(target)} via {locator}"
+    )
+
+
+@tool
+def selenium_assert_snapshot_text(
+    reference: str,
+    expected: str,
+    match_type: str = "contains",
+    refresh: bool = False,
+) -> str:
+    """Asserts text for a snapshot-resolved element."""
+    sl = _get_selenium()
+    target = _resolve_snapshot_locator(reference, force_refresh=bool(refresh))
+    locator = target["locator"]
+    normalized_match = str(match_type or "contains").strip().lower()
+    if normalized_match == "equals":
+        sl.element_text_should_be(locator, expected)
+    elif normalized_match == "contains":
+        sl.element_should_contain(locator, expected)
+    else:
+        raise AssertionError(
+            f"Unsupported match_type '{match_type}'. Use 'contains' or 'equals'."
+        )
+    return (
+        f"PASS: Snapshot target {target.get('snapshot_id', '?')} text {normalized_match} "
+        f"'{expected}': {_snapshot_target_label(target)} via {locator}"
+    )
+
+
+@tool
 def selenium_select_checkbox(locator: str) -> str:
     """Selects (checks) a checkbox element.
 
@@ -1500,6 +1637,9 @@ WEB_TOOLS = instrument_tool_list([
     selenium_select_from_list_by_label,
     selenium_select_from_list_by_value,
     selenium_select_option,
+    selenium_click_snapshot_element,
+    selenium_input_text_by_snapshot,
+    selenium_select_option_by_snapshot,
     selenium_select_checkbox,
     selenium_unselect_checkbox,
     selenium_mouse_over,
@@ -1517,6 +1657,8 @@ WEB_TOOLS = instrument_tool_list([
     selenium_page_should_not_contain,
     selenium_title_should_be,
     selenium_get_location,
+    selenium_assert_snapshot_visible,
+    selenium_assert_snapshot_text,
     selenium_location_should_be,
     selenium_location_should_contain,
     selenium_wait_until_element_is_visible,

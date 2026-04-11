@@ -41,6 +41,10 @@ Tool usage:
 - Use `appium_click_element` to tap UI elements
 - Use `appium_input_text` to enter text in fields
 - Use `appium_select_picker_option` for native pickers, spinners, and dropdown-like controls
+- Prefer `appium_click_snapshot_element`, `appium_input_text_by_snapshot`,
+  `appium_select_picker_option_by_snapshot`, `appium_assert_snapshot_visible`,
+  and `appium_assert_snapshot_text` when the current screen snapshot already
+  exposes the target control
 - Use `appium_hide_keyboard` and `appium_press_keycode` for keyboard and
   Android key actions when taps alone are insufficient
 - Use `appium_go_back` for real back-navigation instead of resetting or relaunching the app
@@ -58,6 +62,10 @@ Tool usage:
   `appium_wait_until_page_does_not_contain`, `appium_wait_until_page_does_not_contain_element`,
   and `appium_wait_for_loading_to_finish` for state-based synchronization instead of fixed sleeps
 - Use `appium_capture_page_screenshot` to capture evidence
+- Use `get_execution_observations` when progress stalls, the screen may be unchanged,
+  or you suspect you are looping on the same action
+- Use `request_manual_intervention` for CAPTCHA, MFA, OTP entry, approval dialogs,
+  or other human-only gates instead of retrying blindly
 - If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
   Before executing actions for each step, call `start_high_level_step` with the step number
   and the step text.
@@ -71,6 +79,7 @@ Tool usage:
 - When a user step is vague, infer the shortest concrete action sequence that would satisfy it,
   then verify the intended outcome with assertions or state checks.
 - Retry a blocked action once after refreshing screen state or clearing a transient interruption.
+- Work in a tight loop: inspect state, take one concrete action or assertion, then reassess.
 - If screen-analysis tools fail, keep the app open, switch to other non-destructive
   checks when possible, and report the failure instead of resetting the app.
 - Step recording is automatic. Do NOT call `record_step` unless explicitly asked.
