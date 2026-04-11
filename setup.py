@@ -88,11 +88,11 @@ setup(
         "pillow>=11.0.0",
     ],
     extras_require={
-        "web": ["robotframework-seleniumlibrary>=7.0"],
+        "web": ["robotframework-seleniumlibrary>=6.8.0"],
         "api": ["robotframework-requests>=0.9"],
         "mobile": ["robotframework-appiumlibrary>=3.2.0"],
         "all": [
-            "robotframework-seleniumlibrary>=7.0",
+            "robotframework-seleniumlibrary>=6.8.0",
             "robotframework-requests>=0.9",
             "robotframework-appiumlibrary>=3.2.0",
         ],
