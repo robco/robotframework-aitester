@@ -111,7 +111,8 @@ class AITester:
         "get_form_fields",
         "check_page_errors",
         "get_execution_observations",
-        "request_manual_intervention",
+        "analyze_screenshot",
+        "get_rf_variable",
         "appium_capture_page_screenshot",
         "appium_get_text",
         "appium_get_element_attribute",
@@ -686,19 +687,6 @@ class AITester:
             return "\n".join(parts)
         return None
 
-    @staticmethod
-    def _validate_manual_interventions(session) -> Optional[str]:
-        interventions = list(getattr(session, "manual_interventions", []) or [])
-        if not interventions:
-            return None
-        latest = interventions[-1]
-        reason = latest.get("reason") or "manual intervention required"
-        details = latest.get("details") or ""
-        message = f"Manual intervention was requested: {reason}"
-        if details:
-            message += f" ({details})"
-        return message
-
     @classmethod
     def _is_qualifying_high_level_step_action(cls, action: str) -> bool:
         normalized = str(action or "").strip()
@@ -1197,7 +1185,6 @@ class AITester:
     def _finalize_session(self, session, error: Exception = None):
         validation_error = self._validate_ui_action_coverage(session)
         completion_error = self._validate_user_step_completion(session)
-        manual_error = self._validate_manual_interventions(session)
         if error:
             session.errors.append(str(error))
         if validation_error:
@@ -1206,11 +1193,8 @@ class AITester:
         if completion_error:
             session.errors.append(completion_error)
             rf_logger.error(completion_error)
-        if manual_error:
-            session.errors.append(manual_error)
-            rf_logger.error(manual_error)
 
-        if error or validation_error or completion_error or manual_error:
+        if error or validation_error or completion_error:
             session.finalize(SessionStatus.FAILED)
         elif session.high_level_steps:
             session.finalize(SessionStatus.COMPLETED)

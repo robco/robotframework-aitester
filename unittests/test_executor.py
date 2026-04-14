@@ -66,7 +66,6 @@ class TestTestSession:
         assert session.allow_browser_termination is False
         assert session.agent_iterations_by_agent == {}
         assert session.action_history == []
-        assert session.manual_interventions == []
 
     def test_create_session_reuse_flags(self):
         session = create_session(
@@ -138,7 +137,6 @@ class TestTestSession:
         assert data["allow_browser_termination"] is False
         assert data["agent_iterations_by_agent"] == {}
         assert data["action_history"] == []
-        assert data["manual_interventions"] == []
 
     def test_record_step_function(self):
         session = create_session("test", "app")

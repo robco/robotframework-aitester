@@ -420,9 +420,12 @@ class AgentOrchestrator:
                 "state actually changed."
             ),
             (
-                "8. If the flow requires CAPTCHA, MFA approval, external code "
-                "entry, payment confirmation, or another human-only step, call "
-                "`request_manual_intervention` instead of retrying blindly."
+                "8. Do not pause for human input. If the flow requires CAPTCHA, "
+                "MFA approval, external code entry, payment confirmation, or "
+                "another hard gate, inspect the current state, look for safe "
+                "alternate paths or remembered-device/test-bypass options, use "
+                "`get_rf_variable` when suite data may exist, and capture "
+                "evidence before failing the blocked step with a precise reason."
             ),
         ]
         if mode == "web":
@@ -556,7 +559,8 @@ Return only the structured JSON plan requested by your system prompt.
                     "1. Reassess the current UI/API state before each major action.",
                     "2. Prefer one concrete action or assertion at a time, then reassess.",
                     "3. When state or progress is unclear, call `get_execution_observations`.",
-                    "4. Escalate with `request_manual_intervention` for human-only gates.",
+                    "4. Stay autonomous: use suite variables, alternate safe paths, "
+                    "and evidence capture before failing a blocked step.",
                     "",
                     "Instructions:",
                     "1. Explore the application directly without a planner or supervisor handoff.",
@@ -579,7 +583,8 @@ Return only the structured JSON plan requested by your system prompt.
                     "2. Prefer one concrete action or assertion at a time, then reassess.",
                     "3. Prefer semantic snapshot-driven tools over raw locator guessing when possible.",
                     "4. Use `get_execution_observations` before repeated retries or when progress stalls.",
-                    "5. Use `request_manual_intervention` for human-only gates.",
+                    "5. Stay autonomous: use suite variables, alternate safe paths, "
+                    "and evidence capture before failing a blocked step.",
                     "",
                     "Instructions:",
                     "1. Execute the numbered steps in order without requesting a separate plan.",
@@ -600,7 +605,8 @@ Return only the structured JSON plan requested by your system prompt.
                 "1. Reassess the current state before each major action.",
                 "2. Prefer one concrete action or assertion at a time, then reassess.",
                 "3. Use `get_execution_observations` when progress stalls or the UI appears unchanged.",
-                "4. Use `request_manual_intervention` for human-only gates.",
+                "4. Stay autonomous: use suite variables, alternate safe paths, "
+                "and evidence capture before failing a blocked step.",
                 "",
                 "Instructions:",
                 "1. Execute this plan directly in priority order.",
@@ -635,6 +641,8 @@ Instructions:
    Execute scenarios in priority order and treat any user-defined steps as the main flow.
    Executors may add minimal recovery actions to dismiss transient blockers
    or clarify vague steps, but must preserve the requested flow and intent.
+   Executors must remain autonomous at hard gates and fail with precise evidence
+   instead of pausing for human input.
 3. Return a brief completion status (1-2 sentences). Do NOT generate a standalone report.
    The official report is provided by Robot Framework's built-in log/report.
 """

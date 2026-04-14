@@ -310,25 +310,6 @@ def test_get_execution_observations_reports_loop_risk_for_web(monkeypatch):
         assert "Iteration budget: used=4, max=6, remaining=2" in result
         assert "Loop risk: Repeated the same action 4 times in a row" in result
         assert 'Page="Checkout"' in result
+        assert "Autonomous recovery:" in result
     finally:
         set_active_session(None)
-
-
-def test_request_manual_intervention_records_session_and_raises(monkeypatch, active_session):
-    monkeypatch.setattr(
-        common_tools,
-        "_capture_manual_intervention_screenshot",
-        lambda session: "/tmp/manual.png",
-    )
-
-    with pytest.raises(AssertionError, match="Manual intervention required: Complete MFA"):
-        common_tools.request_manual_intervention("Complete MFA", "Awaiting OTP")
-
-    assert active_session.manual_interventions == [
-        {
-            "reason": "Complete MFA",
-            "details": "Awaiting OTP",
-            "screenshot_path": "/tmp/manual.png",
-            "step_number": None,
-        }
-    ]

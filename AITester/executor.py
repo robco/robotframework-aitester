@@ -189,7 +189,6 @@ class TestSession:
     last_observation_summary: Optional[str] = None
     last_ui_snapshot_fingerprint: Optional[str] = None
     last_ui_snapshot_summary: Optional[str] = None
-    manual_interventions: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def duration_seconds(self) -> float:
@@ -278,7 +277,6 @@ class TestSession:
             "last_observation_summary": self.last_observation_summary,
             "last_ui_snapshot_fingerprint": self.last_ui_snapshot_fingerprint,
             "last_ui_snapshot_summary": self.last_ui_snapshot_summary,
-            "manual_interventions": self.manual_interventions,
             "scenarios": [
                 {
                     "scenario_id": s.scenario_id,

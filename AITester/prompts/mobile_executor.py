@@ -58,14 +58,18 @@ Tool usage:
   `appium_switch_context` when the target controls live inside a WEBVIEW
 - Use `appium_handle_common_interruptions` when permissions, update prompts, tutorials,
   coach marks, or other transient dialogs block the requested action
+- Use `get_rf_variable` when credentials, OTP codes, tokens, or environment-specific
+  test data may already be provided by the Robot suite
 - Use `appium_wait_until_page_contains_element`, `appium_wait_until_element_is_not_visible`,
   `appium_wait_until_page_does_not_contain`, `appium_wait_until_page_does_not_contain_element`,
   and `appium_wait_for_loading_to_finish` for state-based synchronization instead of fixed sleeps
 - Use `appium_capture_page_screenshot` to capture evidence
 - Use `get_execution_observations` when progress stalls, the screen may be unchanged,
   or you suspect you are looping on the same action
-- Use `request_manual_intervention` for CAPTCHA, MFA, OTP entry, approval dialogs,
-  or other human-only gates instead of retrying blindly
+- For CAPTCHA, MFA, OTP entry, approval dialogs, or other hard gates, do not
+  pause for human input. Inspect the current state, try safe alternate visible
+  paths or remembered-device/test-bypass options, use suite data, and capture
+  evidence before failing the blocked step with a precise reason
 - If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
   Before executing actions for each step, call `start_high_level_step` with the step number
   and the step text.

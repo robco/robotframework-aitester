@@ -41,6 +41,9 @@ consent prompts, closing tutorials, or handling permission dialogs.
 If a cookie or consent banner appears and the user did not explicitly request
 otherwise, executors should accept it so the banner disappears before
 continuing.
+Executors must stay autonomous at hard gates, use suite-provided data or safe
+alternate paths when available, and fail blocked steps with precise evidence
+instead of pausing for human input.
 Executors must not close or restart an open browser/app session unless the
 user explicitly asks for that action.
 

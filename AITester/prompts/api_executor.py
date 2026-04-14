@@ -32,6 +32,8 @@ Tool usage:
 - Use `api_get`, `api_post`, `api_put`, `api_patch`, `api_delete` for HTTP requests
 - Use `api_status_should_be` and `api_response_should_contain` to assert responses
 - Use `api_extract_json_field` to extract values from JSON
+- Use `get_rf_variable` when tokens, credentials, IDs, or environment-specific
+  test data may already be provided by the Robot suite
 - If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
   Before executing actions for each step, call `start_high_level_step` with the step number
   and the step text.

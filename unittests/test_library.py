@@ -124,6 +124,36 @@ def test_validate_user_step_completion_ignores_diagnostic_passes():
     assert "No passed actions" in msg
 
 
+def test_validate_user_step_completion_ignores_rf_variable_passes():
+    tester = AITester()
+
+    session = create_session(
+        objective="Test",
+        app_context="App",
+        test_mode="web",
+        max_iterations=1,
+        high_level_steps=["Complete gated sign-in flow"],
+    )
+    session.current_high_level_step = 1
+    session.current_high_level_step_description = "Complete gated sign-in flow"
+    session.add_step(
+        TestStep(
+            step_number=1,
+            action="get_rf_variable",
+            description="variable_name=${OTP_CODE}",
+            status=StepStatus.PASSED,
+            duration_ms=10,
+            high_level_step_number=1,
+            high_level_step_description="Complete gated sign-in flow",
+        )
+    )
+
+    msg = tester._validate_user_step_completion(session)
+
+    assert msg is not None
+    assert "No passed actions" in msg
+
+
 def test_validate_ui_action_coverage_allows_leave_empty_state_checks():
     tester = AITester()
 
@@ -202,31 +232,6 @@ def test_finalize_session_allows_recovered_high_level_step():
     tester._finalize_session(session)
 
     assert session.status == SessionStatus.COMPLETED
-
-
-def test_finalize_session_fails_when_manual_intervention_requested():
-    tester = AITester()
-
-    session = create_session(
-        objective="Test",
-        app_context="App",
-        test_mode="web",
-        max_iterations=1,
-        high_level_steps=["Complete MFA"],
-    )
-    session.manual_interventions.append(
-        {
-            "reason": "Complete MFA",
-            "details": "Awaiting OTP approval",
-            "screenshot_path": "/tmp/manual.png",
-            "step_number": 1,
-        }
-    )
-
-    tester._finalize_session(session)
-
-    assert session.status == SessionStatus.FAILED
-    assert any("Manual intervention was requested" in item for item in session.errors)
 
 
 def test_extract_user_defined_steps_from_numbered_list():

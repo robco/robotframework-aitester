@@ -351,6 +351,34 @@ def _summarize_current_ui_snapshot(session) -> Optional[str]:
     return f"{summary}; {change_note}"
 
 
+def _build_autonomous_recovery_hint(session) -> Optional[str]:
+    if not session:
+        return None
+    if session.test_mode == "web":
+        return (
+            "Autonomous recovery: refresh page state, clear overlays with "
+            "`selenium_handle_common_blockers`, inspect frames with "
+            "`get_frame_inventory`/`selenium_select_frame`, reuse suite data with "
+            "`get_rf_variable`, then capture evidence and fail the blocked step "
+            "precisely if progress remains impossible."
+        )
+    if session.test_mode == "mobile":
+        return (
+            "Autonomous recovery: refresh screen state, clear interruptions with "
+            "`appium_handle_common_interruptions`, inspect hybrid contexts with "
+            "`appium_get_context_inventory`/`appium_switch_context`, reuse suite data "
+            "with `get_rf_variable`, then capture evidence and fail the blocked step "
+            "precisely if progress remains impossible."
+        )
+    if session.test_mode == "api":
+        return (
+            "Autonomous recovery: inspect the latest responses, reuse extracted data or "
+            "suite variables with `get_rf_variable`, and fail the blocked step precisely "
+            "instead of pausing for human input."
+        )
+    return None
+
+
 def _invalidate_browser_snapshot_cache(action_name: str, status: StepStatus) -> None:
     if status is not StepStatus.PASSED or action_name not in WEB_UI_MUTATION_ACTIONS:
         return
@@ -1078,12 +1106,9 @@ def get_execution_observations(refresh: bool = False) -> str:
     if snapshot_summary:
         lines.append("UI state: " + snapshot_summary)
 
-    if session.manual_interventions:
-        latest = session.manual_interventions[-1]
-        lines.append(
-            "Manual intervention already requested: "
-            f"{latest.get('reason', 'unspecified')} ({latest.get('details', 'no details')})"
-        )
+    recovery_hint = _build_autonomous_recovery_hint(session)
+    if recovery_hint:
+        lines.append(recovery_hint)
 
     if session.agent_iterations_by_agent:
         parts = ", ".join(
@@ -1094,61 +1119,6 @@ def get_execution_observations(refresh: bool = False) -> str:
 
     session.last_observation_summary = "\n".join(lines)
     return session.last_observation_summary
-
-
-def _capture_manual_intervention_screenshot(session) -> Optional[str]:
-    if not session:
-        return None
-    filename = _normalize_screenshot_filename(
-        f"manual-intervention-{session.session_id}-{len(session.manual_interventions) + 1}.png"
-    )
-    try:
-        if session.test_mode == "web":
-            from .web_tools import _get_selenium
-
-            path = _get_selenium().capture_page_screenshot(filename)
-            return _ensure_screenshot_in_output_dir(path)
-        if session.test_mode == "mobile":
-            from .mobile_tools import _get_appium
-
-            path = _get_appium().capture_page_screenshot(filename)
-            return _ensure_screenshot_in_output_dir(path)
-    except Exception as exc:
-        logger.debug("Unable to capture manual intervention screenshot: %s", exc)
-    return None
-
-
-@tool
-def request_manual_intervention(
-    reason: str,
-    details: str = "",
-    capture_screenshot: bool = True,
-) -> str:
-    """Stops autonomous execution when a human is required.
-
-    Use this for CAPTCHA, MFA, payment confirmations, legal approvals,
-    or any state where continued retries would be wasteful or risky.
-    """
-    session = get_active_session()
-    screenshot_path = None
-    if capture_screenshot:
-        screenshot_path = _capture_manual_intervention_screenshot(session)
-
-    payload = {
-        "reason": str(reason or "").strip() or "manual intervention required",
-        "details": str(details or "").strip(),
-        "screenshot_path": screenshot_path,
-        "step_number": getattr(session, "current_high_level_step", None),
-    }
-    if session:
-        session.manual_interventions.append(payload)
-
-    message = f"Manual intervention required: {payload['reason']}"
-    if payload["details"]:
-        message += f" ({payload['details']})"
-    if screenshot_path:
-        message += f". Screenshot: {screenshot_path}"
-    raise AssertionError(message)
 
 
 # ---------------------------------------------------------------------------
@@ -1219,7 +1189,6 @@ COMMON_TOOLS = [
     parse_json,
     get_current_timestamp,
     get_execution_observations,
-    request_manual_intervention,
     analyze_screenshot,
     get_rf_variable,
 ]
