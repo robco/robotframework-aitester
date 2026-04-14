@@ -18,11 +18,11 @@ application and the agent will plan or reuse a flow, execute it, adapt around
 common transient blockers, capture evidence, and log results into Robot
 Framework's built-in `log.html` / `report.html`.
 
-The current executor contract is fully autonomous. There is no
-manual-intervention pause path: when a flow stalls, the agent inspects live
-state, clears blockers, reuses Robot Framework variables when available, tries
-safe alternate paths, and fails the blocked step with precise evidence if the
-gate cannot be completed autonomously.
+The current executor contract is fully autonomous. There is no pause-for-human
+handoff path: when a flow stalls, the agent inspects live state, clears
+blockers, reuses Robot Framework variables when available, tries safe alternate
+paths, and fails the blocked step with precise evidence if the gate cannot be
+completed autonomously.
 
 For UI modes, _AITester_ is strongly session-reuse oriented. The recommended
 pattern is still to open the browser or mobile app with _SeleniumLibrary_ or
@@ -44,7 +44,7 @@ toolsets can still create an initial session through the underlying RF library.
 - Mobile screen snapshots now expose stable per-snapshot element IDs, enabling the same semantic action pattern for native and hybrid flows.
 - Mobile runs now include higher-level Appium helpers for loading waits, picker selection, keyboard control, context switching, and back navigation.
 - Web and mobile executors can add minimal recovery actions when the requested flow is blocked by cookie banners, consent modals, permission dialogs, tutorials, or similar transient UI interruptions. For web runs, cookie/consent banners are accepted by default unless the user explicitly says otherwise.
-- Hard gates such as CAPTCHA, MFA, OTP entry, approval dialogs, or legal confirmations no longer escalate to a human-intervention tool. Executors stay autonomous, consult suite variables, and fail with evidence if the gate cannot be completed safely.
+- Hard gates such as CAPTCHA, MFA, OTP entry, approval dialogs, or legal confirmations no longer escalate to a human handoff tool. Executors stay autonomous, consult suite variables, and fail with evidence if the gate cannot be completed safely.
 - Utility tools provide assertions, JSON parsing, timing, RF variable access, execution observations, and optional AIVision screenshot analysis.
 - RF built-in reporting with embedded screenshots, cached screenshot artifacts, and high-level step grouping when user-defined steps are provided.
 
@@ -54,8 +54,8 @@ Keywords documentation can be found [here](https://robco.github.io/robotframewor
 
 ## Prerequisites
 
-- For web runs, open the target browser with _SeleniumLibrary_ before calling `Run AI Test` or `Run AI Exploration`.
-- For mobile runs, start the Appium server, device or emulator, and open the application with _AppiumLibrary_ before calling `Run AI Mobile Test` or `Run AI Exploration`.
+- For deterministic web runs, open the target browser with _SeleniumLibrary_ before calling `Run AI Test` or `Run AI Exploration`.
+- For deterministic mobile runs, start the Appium server, device or emulator, and open the application with _AppiumLibrary_ before calling `Run AI Mobile Test` or `Run AI Exploration`.
 - For API runs, load _RequestsLibrary_ in the suite and provide `base_url` or an already-initialized session context when relevant.
 - Install only the extras you need for the target mode and provider.
 - Set provider credentials through environment variables such as `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` when required.
@@ -354,7 +354,7 @@ Reuse Existing Web Session
 | Keyword                     | Description                                       |
 |----------------------------|----------------------------------------------------|
 | `Run AI Test`              | Execute an autonomous test from a test objective (supports `test_steps`, `scroll_into_view`) |
-| `Run AI Exploration`       | Run exploratory testing with focus areas (supports `scroll_into_view`) |
+| `Run AI Exploration`       | Run exploratory testing with focus areas in the library's configured `test_mode` (supports `scroll_into_view`) |
 | `Run AI API Test`          | Execute autonomous REST API testing (supports `test_steps`, `scroll_into_view`) |
 | `Run AI Mobile Test`       | Execute autonomous mobile app testing (supports `test_steps`, `scroll_into_view`) |
 | `Get AI Platform Info`     | Return configured platform information             |
