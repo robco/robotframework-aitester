@@ -26,6 +26,12 @@ import logging
 import re
 from strands import Agent, tool
 from strands.agent.conversation_manager import SlidingWindowConversationManager
+from strands.hooks import (
+    AfterToolCallEvent,
+    BeforeModelCallEvent,
+    BeforeToolCallEvent,
+    MessageAddedEvent,
+)
 
 from .prompts import (
     SUPERVISOR_PROMPT,
@@ -40,8 +46,89 @@ from .tools.mobile_tools import MOBILE_TOOLS
 from .tools.common_tools import COMMON_TOOLS
 from .tools.browser_analysis_tools import BROWSER_ANALYSIS_TOOLS
 from .tools.mobile_analysis_tools import MOBILE_ANALYSIS_TOOLS
+from .executor import get_active_session
 
 logger = logging.getLogger(__name__)
+
+
+class SessionTrackingHooks:
+    """Hook provider that captures model/tool activity into the active session."""
+
+    def __init__(self, agent_name: str):
+        self.agent_name = agent_name
+
+    def register_hooks(self, registry, **kwargs):
+        registry.add_callback(BeforeModelCallEvent, self._before_model_call)
+        registry.add_callback(BeforeToolCallEvent, self._before_tool_call)
+        registry.add_callback(AfterToolCallEvent, self._after_tool_call)
+        registry.add_callback(MessageAddedEvent, self._message_added)
+
+    def _before_model_call(self, event: BeforeModelCallEvent) -> None:
+        session = get_active_session()
+        if not session:
+            return
+        session.iterations_used += 1
+        session.agent_iterations_by_agent[self.agent_name] = (
+            session.agent_iterations_by_agent.get(self.agent_name, 0) + 1
+        )
+        remaining = max(session.max_iterations - session.iterations_used, 0)
+        summary = (
+            f"{self.agent_name}: model iteration {session.iterations_used}/{session.max_iterations} "
+            f"(remaining={remaining})"
+        )
+        session.last_observation_summary = summary
+        session.agent_log.append(
+            {
+                "agent": self.agent_name,
+                "event": "before_model_call",
+                "summary": summary,
+                "remaining_iterations": remaining,
+            }
+        )
+
+    def _before_tool_call(self, event: BeforeToolCallEvent) -> None:
+        session = get_active_session()
+        if not session:
+            return
+        session.agent_log.append(
+            {
+                "agent": self.agent_name,
+                "event": "before_tool_call",
+                "tool": getattr(event.tool_use, "name", None),
+                "input": getattr(event.tool_use, "input", None),
+            }
+        )
+
+    def _after_tool_call(self, event: AfterToolCallEvent) -> None:
+        session = get_active_session()
+        if not session:
+            return
+        result_preview = ""
+        content = getattr(event.result, "content", None)
+        if isinstance(content, list) and content:
+            result_preview = str(content[0])[:300]
+        session.agent_log.append(
+            {
+                "agent": self.agent_name,
+                "event": "after_tool_call",
+                "tool": getattr(event.tool_use, "name", None),
+                "status": getattr(event.result, "status", None),
+                "exception": str(event.exception) if event.exception else None,
+                "result": result_preview,
+            }
+        )
+
+    def _message_added(self, event: MessageAddedEvent) -> None:
+        session = get_active_session()
+        if not session:
+            return
+        session.agent_log.append(
+            {
+                "agent": self.agent_name,
+                "event": "message_added",
+                "message": str(getattr(event, "message", ""))[:400],
+            }
+        )
 
 
 class AgentOrchestrator:
@@ -89,6 +176,7 @@ class AgentOrchestrator:
                 window_size=10,
             ),
             callback_handler=self._create_callback_handler("Planner"),
+            hooks=[SessionTrackingHooks("Planner")],
             name="Test Planner",
             description="Creates structured test plans from objectives",
         )
@@ -105,6 +193,7 @@ class AgentOrchestrator:
                 window_size=20,
             ),
             callback_handler=self._create_callback_handler("WebExecutor"),
+            hooks=[SessionTrackingHooks("WebExecutor")],
             name="Web Executor",
             description="Executes web tests using Selenium browser automation",
         )
@@ -121,6 +210,7 @@ class AgentOrchestrator:
                 window_size=20,
             ),
             callback_handler=self._create_callback_handler("APIExecutor"),
+            hooks=[SessionTrackingHooks("APIExecutor")],
             name="API Executor",
             description="Executes API tests using HTTP requests",
         )
@@ -137,6 +227,7 @@ class AgentOrchestrator:
                 window_size=20,
             ),
             callback_handler=self._create_callback_handler("MobileExecutor"),
+            hooks=[SessionTrackingHooks("MobileExecutor")],
             name="Mobile Executor",
             description="Executes mobile app tests using Appium",
         )
@@ -237,6 +328,7 @@ class AgentOrchestrator:
                 window_size=30,
             ),
             callback_handler=self._create_callback_handler("Supervisor"),
+            hooks=[SessionTrackingHooks("Supervisor")],
             name="Supervisor",
             description="Senior QA Test Lead coordinating specialist agents",
         )
@@ -317,28 +409,54 @@ class AgentOrchestrator:
                 "different user journey, or take destructive side paths "
                 "unless the requested path is impossible."
             ),
+            (
+                "6. Prefer semantic snapshot-driven tools over raw locator "
+                "guessing when available. Resolve current UI state first, then "
+                "execute one concrete action or assertion at a time."
+            ),
+            (
+                "7. When progress stalls, call `get_execution_observations` "
+                "to inspect iteration budget, loop risk, and whether the UI "
+                "state actually changed."
+            ),
+            (
+                "8. Do not pause for human input. If the flow requires CAPTCHA, "
+                "MFA approval, external code entry, payment confirmation, or "
+                "another hard gate, inspect the current state, look for safe "
+                "alternate paths or remembered-device/test-bypass options, use "
+                "`get_rf_variable` when suite data may exist, and capture "
+                "evidence before failing the blocked step with a precise reason."
+            ),
         ]
         if mode == "web":
             rules.append(
-                "6. When the page state is unclear, inspect it with "
+                "9. When the page state is unclear, inspect it with "
                 "`get_page_snapshot`. If a banner or modal blocks "
                 "interaction, use `selenium_handle_common_blockers` before "
                 "retrying the target action."
             )
             rules.append(
-                "7. Simulate a normal user. Use direct URL navigation only "
+                "10. Prefer `selenium_click_snapshot_element`, "
+                "`selenium_input_text_by_snapshot`, "
+                "`selenium_select_option_by_snapshot`, "
+                "`selenium_assert_snapshot_visible`, and "
+                "`selenium_assert_snapshot_text` when the page snapshot already "
+                "contains the target control."
+            )
+            rules.append(
+                "11. Simulate a normal user. Use direct URL navigation only "
                 "for the initial application entry when needed. After that, "
                 "reach pages by clicking visible links, buttons, menus, tabs, "
                 "breadcrumbs, and other UI controls instead of jumping to URLs, "
                 "unless the user explicitly instructs a concrete URL to open."
             )
             rules.append(
-                "8. Preserve any open browser session. Do not close or restart "
+                "12. Preserve any open browser session. Do not close or restart "
                 "the browser as a recovery step unless the user explicitly "
                 "requested that action."
             )
             rules.append(
-                "9. If expected controls are missing from the current document, "
+                "13. If expected controls are missing from the current document, "
                 "inspect `get_frame_inventory` or the frame section of "
                 "`get_page_snapshot`, switch into the most likely iframe with "
                 "`selenium_select_frame`, re-check page state inside that frame, "
@@ -347,7 +465,7 @@ class AgentOrchestrator:
             )
         elif mode == "mobile":
             rules.append(
-                "6. When the current screen is unclear, inspect it with "
+                "9. When the current screen is unclear, inspect it with "
                 "`appium_get_view_snapshot`, `appium_get_interactive_elements`, "
                 "and `appium_get_loading_state` first, and fall back to "
                 "`appium_get_source` only when more XML detail is needed. If the "
@@ -355,13 +473,21 @@ class AgentOrchestrator:
                 "`appium_handle_common_interruptions` before retrying the target action."
             )
             rules.append(
-                "7. Simulate a normal user on the current device. Continue "
+                "10. Prefer `appium_click_snapshot_element`, "
+                "`appium_input_text_by_snapshot`, "
+                "`appium_select_picker_option_by_snapshot`, "
+                "`appium_assert_snapshot_visible`, and "
+                "`appium_assert_snapshot_text` when the current screen snapshot "
+                "already contains the target control."
+            )
+            rules.append(
+                "11. Simulate a normal user on the current device. Continue "
                 "from the current screen and navigate with visible taps, "
                 "swipes, scrolls, tabs, and menus instead of resetting or "
                 "relaunching the app to skip ahead."
             )
             rules.append(
-                "8. Prefer state-based waits such as "
+                "12. Prefer state-based waits such as "
                 "`appium_wait_until_page_contains_element`, "
                 "`appium_wait_until_element_is_not_visible`, and "
                 "`appium_wait_for_loading_to_finish` instead of fixed sleeps. "
@@ -371,12 +497,12 @@ class AgentOrchestrator:
                 "true back-navigation."
             )
             rules.append(
-                "9. For hybrid apps, inspect `appium_get_context_inventory` and "
+                "13. For hybrid apps, inspect `appium_get_context_inventory` and "
                 "use `appium_switch_context` when the target UI lives in a "
                 "WEBVIEW context instead of native views."
             )
             rules.append(
-                "10. Preserve any open mobile session. Do not close, reset, "
+                "14. Preserve any open mobile session. Do not close, reset, "
                 "or relaunch the application as a recovery step unless the "
                 "user explicitly requested that action."
             )
@@ -429,6 +555,13 @@ Return only the structured JSON plan requested by your system prompt.
                     "",
                     f"Focus Areas: {focus_areas or 'general exploration'}",
                     "",
+                    "Execution Loop Contract:",
+                    "1. Reassess the current UI/API state before each major action.",
+                    "2. Prefer one concrete action or assertion at a time, then reassess.",
+                    "3. When state or progress is unclear, call `get_execution_observations`.",
+                    "4. Stay autonomous: use suite variables, alternate safe paths, "
+                    "and evidence capture before failing a blocked step.",
+                    "",
                     "Instructions:",
                     "1. Explore the application directly without a planner or supervisor handoff.",
                     "2. Focus on the listed areas, exercise main flows, and verify outcomes with tools.",
@@ -445,6 +578,14 @@ Return only the structured JSON plan requested by your system prompt.
                     "User-defined Main Flow:",
                     formatted_steps,
                     "",
+                    "Execution Loop Contract:",
+                    "1. Start each business step with the current UI/API state in mind.",
+                    "2. Prefer one concrete action or assertion at a time, then reassess.",
+                    "3. Prefer semantic snapshot-driven tools over raw locator guessing when possible.",
+                    "4. Use `get_execution_observations` before repeated retries or when progress stalls.",
+                    "5. Stay autonomous: use suite variables, alternate safe paths, "
+                    "and evidence capture before failing a blocked step.",
+                    "",
                     "Instructions:",
                     "1. Execute the numbered steps in order without requesting a separate plan.",
                     "2. Treat the numbered steps as the primary flow and keep their business intent intact.",
@@ -459,6 +600,13 @@ Return only the structured JSON plan requested by your system prompt.
                 "",
                 "Execution Plan:",
                 plan,
+                "",
+                "Execution Loop Contract:",
+                "1. Reassess the current state before each major action.",
+                "2. Prefer one concrete action or assertion at a time, then reassess.",
+                "3. Use `get_execution_observations` when progress stalls or the UI appears unchanged.",
+                "4. Stay autonomous: use suite variables, alternate safe paths, "
+                "and evidence capture before failing a blocked step.",
                 "",
                 "Instructions:",
                 "1. Execute this plan directly in priority order.",
@@ -493,6 +641,8 @@ Instructions:
    Execute scenarios in priority order and treat any user-defined steps as the main flow.
    Executors may add minimal recovery actions to dismiss transient blockers
    or clarify vague steps, but must preserve the requested flow and intent.
+   Executors must remain autonomous at hard gates and fail with precise evidence
+   instead of pausing for human input.
 3. Return a brief completion status (1-2 sentences). Do NOT generate a standalone report.
    The official report is provided by Robot Framework's built-in log/report.
 """

@@ -22,7 +22,7 @@ def _format_interactive_elements(elements) -> str:
 
     lines = [f"Found {len(elements)} interactive elements:"]
     for index, item in enumerate(elements[:25], start=1):
-        parts = [f"{index}. {item['kind']}"]
+        parts = [f"{index}. id={item.get('snapshot_id', '?')} {item['kind']}"]
         if item.get("label"):
             parts.append(f"label={item['label']}")
         if item.get("locator"):

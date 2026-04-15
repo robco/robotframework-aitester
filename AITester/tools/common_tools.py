@@ -9,6 +9,7 @@ assertions, logging, timing, and optional aivision integration.
 """
 
 import functools
+import hashlib
 import inspect
 import json
 import logging
@@ -49,6 +50,9 @@ WEB_UI_INTERACTION_ACTIONS = {
     "selenium_switch_window",
     "selenium_select_frame",
     "selenium_unselect_frame",
+    "selenium_click_snapshot_element",
+    "selenium_input_text_by_snapshot",
+    "selenium_select_option_by_snapshot",
 }
 
 WEB_UI_STATE_ACTIONS = {
@@ -84,6 +88,8 @@ WEB_UI_STATE_ACTIONS = {
     "get_frame_inventory",
     "get_form_fields",
     "check_page_errors",
+    "selenium_assert_snapshot_visible",
+    "selenium_assert_snapshot_text",
 }
 
 MOBILE_UI_INTERACTION_ACTIONS = {
@@ -105,6 +111,9 @@ MOBILE_UI_INTERACTION_ACTIONS = {
     "appium_background_app",
     "appium_reset_application",
     "appium_handle_common_interruptions",
+    "appium_click_snapshot_element",
+    "appium_input_text_by_snapshot",
+    "appium_select_picker_option_by_snapshot",
 }
 
 MOBILE_UI_STATE_ACTIONS = {
@@ -130,6 +139,8 @@ MOBILE_UI_STATE_ACTIONS = {
     "appium_get_interactive_elements",
     "appium_get_screen_structure",
     "appium_get_context_inventory",
+    "appium_assert_snapshot_visible",
+    "appium_assert_snapshot_text",
 }
 
 WEB_UI_MUTATION_ACTIONS = {
@@ -166,6 +177,9 @@ WEB_UI_MUTATION_ACTIONS = {
     "selenium_switch_window",
     "selenium_select_frame",
     "selenium_unselect_frame",
+    "selenium_click_snapshot_element",
+    "selenium_input_text_by_snapshot",
+    "selenium_select_option_by_snapshot",
 }
 
 MOBILE_UI_MUTATION_ACTIONS = {
@@ -187,6 +201,9 @@ MOBILE_UI_MUTATION_ACTIONS = {
     "appium_background_app",
     "appium_reset_application",
     "appium_handle_common_interruptions",
+    "appium_click_snapshot_element",
+    "appium_input_text_by_snapshot",
+    "appium_select_picker_option_by_snapshot",
 }
 
 
@@ -215,6 +232,151 @@ def _track_ui_action(session, action_name: str, status: StepStatus) -> None:
             session.ui_state_checks_by_step[step_number] = (
                 session.ui_state_checks_by_step.get(step_number, 0) + 1
             )
+
+
+def _remember_action_history(
+    session,
+    action_name: str,
+    status: StepStatus,
+    description: str,
+) -> None:
+    if not session:
+        return
+    signature = "|".join(
+        [
+            str(action_name or "").strip(),
+            status.value,
+            str(description or "").strip()[:160],
+        ]
+    )
+    session.action_history.append(signature)
+    if len(session.action_history) > 30:
+        session.action_history[:] = session.action_history[-30:]
+    session.last_tool_action = str(action_name or "").strip() or None
+    session.last_tool_status = status.value
+
+
+def _summarize_repeated_actions(session) -> Optional[str]:
+    history = list(getattr(session, "action_history", []) or [])
+    if len(history) < 3:
+        return None
+    recent = history[-4:]
+    if len(set(recent)) == 1:
+        action_name = recent[-1].split("|", 1)[0]
+        return f"Repeated the same action 4 times in a row: {action_name}"
+    action_names = [item.split("|", 1)[0] for item in recent]
+    if len(set(action_names)) == 1:
+        return f"Repeated the same tool 4 times in a row: {action_names[-1]}"
+    return None
+
+
+def _summarize_current_ui_snapshot(session) -> Optional[str]:
+    if not session or session.test_mode not in {"web", "mobile"}:
+        return None
+
+    snapshot = None
+    fingerprint_source = ""
+    summary = None
+
+    if session.test_mode == "web":
+        from .browser_analysis_tools import _get_page_snapshot_data
+
+        snapshot = _get_page_snapshot_data()
+        fingerprint_source = json.dumps(
+            {
+                "title": snapshot.get("title"),
+                "url": snapshot.get("url"),
+                "interactive": [
+                    element.get("snapshot_id")
+                    for element in snapshot.get("interactive_elements", [])[:20]
+                ],
+                "blockers": [
+                    blocker.get("category")
+                    for blocker in snapshot.get("possible_blockers", [])[:10]
+                ],
+                "loading": [
+                    item.get("locator") or item.get("kind")
+                    for item in snapshot.get("loading_indicators", [])[:10]
+                ],
+            },
+            sort_keys=True,
+        )
+        summary = (
+            f'Page="{snapshot.get("title", "Untitled")}" '
+            f'URL={snapshot.get("url", "unknown")} '
+            f'interactive={len(snapshot.get("interactive_elements", []))} '
+            f'blockers={len(snapshot.get("possible_blockers", []))} '
+            f'loading={len(snapshot.get("loading_indicators", []))}'
+        )
+    else:
+        from .mobile_tools import _get_mobile_snapshot_data
+
+        snapshot = _get_mobile_snapshot_data()
+        fingerprint_source = json.dumps(
+            {
+                "context": snapshot.get("context"),
+                "interactive": [
+                    element.get("snapshot_id")
+                    for element in snapshot.get("interactive_elements", [])[:20]
+                ],
+                "interruptions": [
+                    item.get("label")
+                    for item in snapshot.get("interruptions", [])[:10]
+                ],
+                "loading": [
+                    item.get("locator") or item.get("kind")
+                    for item in snapshot.get("loading_indicators", [])[:10]
+                ],
+            },
+            sort_keys=True,
+        )
+        summary = (
+            f'Context={snapshot.get("context", "unknown")} '
+            f'interactive={len(snapshot.get("interactive_elements", []))} '
+            f'interruptions={len(snapshot.get("interruptions", []))} '
+            f'loading={len(snapshot.get("loading_indicators", []))}'
+        )
+
+    fingerprint = hashlib.sha1(fingerprint_source.encode("utf-8")).hexdigest()
+    previous = session.last_ui_snapshot_fingerprint
+    if previous == fingerprint:
+        change_note = "UI snapshot unchanged since the previous observation"
+    elif previous:
+        change_note = "UI snapshot changed since the previous observation"
+    else:
+        change_note = "First UI snapshot observation captured for this run"
+
+    session.last_ui_snapshot_fingerprint = fingerprint
+    session.last_ui_snapshot_summary = summary
+    return f"{summary}; {change_note}"
+
+
+def _build_autonomous_recovery_hint(session) -> Optional[str]:
+    if not session:
+        return None
+    if session.test_mode == "web":
+        return (
+            "Autonomous recovery: refresh page state, clear overlays with "
+            "`selenium_handle_common_blockers`, inspect frames with "
+            "`get_frame_inventory`/`selenium_select_frame`, reuse suite data with "
+            "`get_rf_variable`, then capture evidence and fail the blocked step "
+            "precisely if progress remains impossible."
+        )
+    if session.test_mode == "mobile":
+        return (
+            "Autonomous recovery: refresh screen state, clear interruptions with "
+            "`appium_handle_common_interruptions`, inspect hybrid contexts with "
+            "`appium_get_context_inventory`/`appium_switch_context`, reuse suite data "
+            "with `get_rf_variable`, then capture evidence and fail the blocked step "
+            "precisely if progress remains impossible."
+        )
+    if session.test_mode == "api":
+        return (
+            "Autonomous recovery: inspect the latest responses, reuse extracted data or "
+            "suite variables with `get_rf_variable`, and fail the blocked step precisely "
+            "instead of pausing for human input."
+        )
+    return None
 
 
 def _invalidate_browser_snapshot_cache(action_name: str, status: StepStatus) -> None:
@@ -673,6 +835,7 @@ def _record_tool_step(
             error_message=error_message,
         )
         _track_ui_action(session, action, status)
+        _remember_action_history(session, action, status, description)
     _invalidate_browser_snapshot_cache(action, status)
     _invalidate_mobile_snapshot_cache(action, status)
     _log_ai_step_to_rf(
@@ -894,6 +1057,70 @@ def get_current_timestamp() -> str:
     return f"Current timestamp: {datetime.now().isoformat()}"
 
 
+@tool
+def get_execution_observations(refresh: bool = False) -> str:
+    """Summarizes the current execution state and likely orchestration risks.
+
+    Args:
+        refresh: Whether to refresh the current UI snapshot before summarizing
+            observations for web/mobile sessions.
+
+    Returns:
+        A compact observation summary suitable for the next planning step.
+    """
+    session = get_active_session()
+    if not session:
+        return "No active AI test session"
+
+    if refresh and session.test_mode == "web":
+        from .browser_analysis_tools import _get_page_snapshot_data
+
+        _get_page_snapshot_data(force_refresh=True)
+    elif refresh and session.test_mode == "mobile":
+        from .mobile_tools import _get_mobile_snapshot_data
+
+        _get_mobile_snapshot_data(force_refresh=True)
+
+    remaining = max(int(session.max_iterations) - int(session.iterations_used), 0)
+    lines = [
+        f"Execution observations for {session.test_mode} mode:",
+        f"Iteration budget: used={session.iterations_used}, max={session.max_iterations}, remaining={remaining}",
+    ]
+
+    if session.current_high_level_step:
+        step_text = str(session.current_high_level_step_description or "").strip()
+        lines.append(
+            f"Current high-level step: {session.current_high_level_step}. {step_text}".strip()
+        )
+
+    if session.last_tool_action:
+        lines.append(
+            f"Last tool result: {session.last_tool_action} ({session.last_tool_status or 'unknown'})"
+        )
+
+    repeated = _summarize_repeated_actions(session)
+    if repeated:
+        lines.append("Loop risk: " + repeated)
+
+    snapshot_summary = _summarize_current_ui_snapshot(session)
+    if snapshot_summary:
+        lines.append("UI state: " + snapshot_summary)
+
+    recovery_hint = _build_autonomous_recovery_hint(session)
+    if recovery_hint:
+        lines.append(recovery_hint)
+
+    if session.agent_iterations_by_agent:
+        parts = ", ".join(
+            f"{agent}={count}"
+            for agent, count in sorted(session.agent_iterations_by_agent.items())
+        )
+        lines.append("Agent iterations: " + parts)
+
+    session.last_observation_summary = "\n".join(lines)
+    return session.last_observation_summary
+
+
 # ---------------------------------------------------------------------------
 # Screenshot analysis (AIVision integration)
 # ---------------------------------------------------------------------------
@@ -961,6 +1188,7 @@ COMMON_TOOLS = [
     sleep_seconds,
     parse_json,
     get_current_timestamp,
+    get_execution_observations,
     analyze_screenshot,
     get_rf_variable,
 ]

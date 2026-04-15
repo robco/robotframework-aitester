@@ -44,6 +44,10 @@ Tool usage:
 - Use `selenium_click_element` to click buttons, links
 - Use `selenium_input_text` to fill form fields
 - Use `selenium_select_option` as the default tool for dropdowns and comboboxes
+- Prefer `selenium_click_snapshot_element`, `selenium_input_text_by_snapshot`,
+  `selenium_select_option_by_snapshot`, `selenium_assert_snapshot_visible`,
+  and `selenium_assert_snapshot_text` when `get_page_snapshot`,
+  `get_interactive_elements`, or `get_form_fields` already expose the target control
 - Use `selenium_select_from_list_by_label` or `selenium_select_from_list_by_value`
   when the control is clearly a native `<select>`
 - Use `selenium_element_should_be_visible` to check element presence
@@ -65,7 +69,15 @@ Tool usage:
   tutorial overlays, or similar interruptions block the requested action
 - If a cookie or consent banner appears and the user did not explicitly request otherwise,
   accept cookies/consent so the banner disappears before continuing
+- Use `get_rf_variable` when credentials, OTP codes, tokens, or environment-specific
+  test data may already be provided by the Robot suite
 - Use `selenium_capture_page_screenshot` to capture evidence
+- Use `get_execution_observations` when progress stalls, the UI may be unchanged,
+  or you suspect you are looping on the same action
+- For CAPTCHA, MFA, OTP entry, payment approvals, legal confirmations, or other
+  hard gates, do not pause for human input. Inspect the current state, try safe
+  alternate visible paths or remembered-device/test-bypass options, use suite data,
+  and capture evidence before failing the blocked step with a precise reason
 - If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
   Before executing actions for each step, call `start_high_level_step` with the step number
   and the step text.
@@ -80,6 +92,7 @@ Tool usage:
 - When a user step is vague, infer the shortest concrete action sequence that would satisfy it,
   then verify the intended outcome with assertions or state checks.
 - Retry a blocked action once after refreshing page state or clearing a transient blocker.
+- Work in a tight loop: inspect state, take one concrete action or assertion, then reassess.
 - For custom dropdowns, do not assume Selenium's native select keywords will work.
   Treat them as combobox/listbox widgets: open the trigger, then select the matching option.
 - When a navigation or click triggers asynchronous loading and the page shows a spinner,

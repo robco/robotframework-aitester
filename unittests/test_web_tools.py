@@ -20,10 +20,14 @@ class DummySelenium:
         self.selected_by_label = []
         self.selected_by_value = []
         self.typed = []
+        self.cleared = []
         self.waited_not_visible = []
         self.waited_text_gone = []
         self.waited_element_gone = []
         self.execute_script_calls = []
+        self.visible_checks = []
+        self.contains_checks = []
+        self.equals_checks = []
 
     def click_element(self, locator):
         self.clicked.append(locator)
@@ -58,6 +62,9 @@ class DummySelenium:
     def input_text(self, locator, text):
         self.typed.append((locator, text))
 
+    def clear_element_text(self, locator):
+        self.cleared.append(locator)
+
     def wait_until_element_is_not_visible(self, locator, timeout):
         self.waited_not_visible.append((locator, timeout))
 
@@ -66,6 +73,15 @@ class DummySelenium:
 
     def wait_until_page_does_not_contain_element(self, locator, timeout):
         self.waited_element_gone.append((locator, timeout))
+
+    def element_should_be_visible(self, locator):
+        self.visible_checks.append(locator)
+
+    def element_should_contain(self, locator, expected):
+        self.contains_checks.append((locator, expected))
+
+    def element_text_should_be(self, locator, expected):
+        self.equals_checks.append((locator, expected))
 
     def execute_script(self, code, *args):
         self.execute_script_calls.append((code, args))
@@ -491,6 +507,69 @@ def test_selenium_select_from_list_by_label_falls_back_to_custom_dropdown(monkey
     assert result == "Selected 'High' from dropdown: id=priority"
     assert dummy.clicked == ["id=priority"]
     assert dummy.selected_by_label == []
+
+
+def test_selenium_click_snapshot_element_uses_resolved_locator(monkeypatch):
+    dummy = DummySelenium()
+    monkeypatch.setattr(web_tools, "_get_selenium", lambda: dummy)
+    monkeypatch.setattr(web_tools, "_maybe_scroll_into_view", lambda sl, locator: None)
+    monkeypatch.setattr(
+        web_tools,
+        "_resolve_snapshot_locator",
+        lambda reference, force_refresh=False: {
+            "snapshot_id": "el-4",
+            "locator": "id=checkout",
+            "text": "Checkout",
+        },
+    )
+
+    result = web_tools.selenium_click_snapshot_element("el-4")
+
+    assert result == "Clicked snapshot target el-4: Checkout via id=checkout"
+    assert dummy.clicked == ["id=checkout"]
+
+
+def test_selenium_input_text_by_snapshot_clears_then_types(monkeypatch):
+    dummy = DummySelenium()
+    monkeypatch.setattr(web_tools, "_get_selenium", lambda: dummy)
+    monkeypatch.setattr(web_tools, "_maybe_scroll_into_view", lambda sl, locator: None)
+    monkeypatch.setattr(
+        web_tools,
+        "_resolve_snapshot_locator",
+        lambda reference, force_refresh=False: {
+            "snapshot_id": "field-1",
+            "locator": "id=email",
+            "placeholder": "Email",
+        },
+    )
+
+    result = web_tools.selenium_input_text_by_snapshot("field-1", "robot@example.test")
+
+    assert "Typed 'robot@example.test' into snapshot target field-1" in result
+    assert dummy.cleared == ["id=email"]
+    assert dummy.typed == [("id=email", "robot@example.test")]
+
+
+def test_selenium_assert_snapshot_text_supports_contains_and_equals(monkeypatch):
+    dummy = DummySelenium()
+    monkeypatch.setattr(web_tools, "_get_selenium", lambda: dummy)
+    monkeypatch.setattr(
+        web_tools,
+        "_resolve_snapshot_locator",
+        lambda reference, force_refresh=False: {
+            "snapshot_id": "el-5",
+            "locator": "id=status",
+            "text": "Status",
+        },
+    )
+
+    contains = web_tools.selenium_assert_snapshot_text("el-5", "Open")
+    equals = web_tools.selenium_assert_snapshot_text("el-5", "Open", match_type="equals")
+
+    assert "text contains 'Open'" in contains
+    assert "text equals 'Open'" in equals
+    assert dummy.contains_checks == [("id=status", "Open")]
+    assert dummy.equals_checks == [("id=status", "Open")]
 
 
 def test_selenium_wait_for_loading_to_finish_after_indicators_disappear(monkeypatch):

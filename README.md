@@ -3,7 +3,7 @@
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/robco)
 # Robot Framework AI Tester
 
-[![Robot Framework](https://img.shields.io/badge/Robot%20Framework-7.0%2B-brightgreen)](https://robotframework.org)
+[![Robot Framework](https://img.shields.io/badge/Robot%20Framework-6.0%2B-brightgreen)](https://robotframework.org)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
@@ -18,22 +18,34 @@ application and the agent will plan or reuse a flow, execute it, adapt around
 common transient blockers, capture evidence, and log results into Robot
 Framework's built-in `log.html` / `report.html`.
 
-For UI modes, _AITester_ is intentionally session-reuse oriented: your suite
-opens the browser or mobile app with _SeleniumLibrary_ or _AppiumLibrary_ first,
-and _AITester_ attaches to that existing session rather than provisioning a new
-one on its own.
+The current executor contract is fully autonomous. There is no pause-for-human
+handoff path: when a flow stalls, the agent inspects live state, clears
+blockers, reuses Robot Framework variables when available, tries safe alternate
+paths, and fails the blocked step with precise evidence if the gate cannot be
+completed autonomously.
+
+For UI modes, _AITester_ is strongly session-reuse oriented. The recommended
+pattern is still to open the browser or mobile app with _SeleniumLibrary_ or
+_AppiumLibrary_ first and let _AITester_ attach to that session. When no active
+session exists and enough entry-point information is available, the web/mobile
+toolsets can still create an initial session through the underlying RF library.
 
 ## Feature Highlights
 
 - Direct single-mode execution uses a fast path: `Planner -> Web/API/Mobile Executor`, while user-defined numbered `test_steps` skip planning and run straight in the target executor.
+- `Run AI Exploration` also uses the direct executor path and skips a planner handoff.
 - Numbered steps embedded directly in the objective are also detected and treated as the main flow, even if `test_steps` is not passed separately.
+- If `test_steps` is omitted, AITester can auto-detect numbered steps from common RF variables such as `${TEST_STEPS}`, `${AI_STEPS}`, `${AI_TEST_STEPS}`, `${AITESTER_TEST_STEPS}`, and `${USER_TEST_STEPS}`.
 - Supervisor orchestration remains available internally as a fallback path for unsupported or custom execution flows.
 - Instrumented tool bridge records step status, duration, assertion details, and screenshot references, surfacing them in RF logs via the `AI Step` keyword.
 - Browser analysis tools share a cached `get_page_snapshot` view and derive interactive elements, page structure, form fields, links, text content, and console errors from that shared page state.
+- Browser snapshots now expose stable per-snapshot element IDs, enabling semantic actions such as snapshot-based click, input, select, and assertions instead of raw locator guessing.
 - Mobile analysis tools now reuse a cached Appium source snapshot across screen-summary and source-inspection calls until the UI changes.
+- Mobile screen snapshots now expose stable per-snapshot element IDs, enabling the same semantic action pattern for native and hybrid flows.
 - Mobile runs now include higher-level Appium helpers for loading waits, picker selection, keyboard control, context switching, and back navigation.
 - Web and mobile executors can add minimal recovery actions when the requested flow is blocked by cookie banners, consent modals, permission dialogs, tutorials, or similar transient UI interruptions. For web runs, cookie/consent banners are accepted by default unless the user explicitly says otherwise.
-- Utility tools provide assertions, JSON parsing, timing, RF variable access, and optional AIVision screenshot analysis.
+- Hard gates such as CAPTCHA, MFA, OTP entry, approval dialogs, or legal confirmations no longer escalate to a human handoff tool. Executors stay autonomous, consult suite variables, and fail with evidence if the gate cannot be completed safely.
+- Utility tools provide assertions, JSON parsing, timing, RF variable access, execution observations, and optional AIVision screenshot analysis.
 - RF built-in reporting with embedded screenshots, cached screenshot artifacts, and high-level step grouping when user-defined steps are provided.
 
 ## Keywords Documentation
@@ -42,12 +54,13 @@ Keywords documentation can be found [here](https://robco.github.io/robotframewor
 
 ## Prerequisites
 
-- For web runs, open the target browser with _SeleniumLibrary_ before calling `Run AI Test` or `Run AI Exploration`.
-- For mobile runs, start the Appium server, device or emulator, and open the application with _AppiumLibrary_ before calling `Run AI Mobile Test` or `Run AI Exploration`.
+- For deterministic web runs, open the target browser with _SeleniumLibrary_ before calling `Run AI Test` or `Run AI Exploration`.
+- For deterministic mobile runs, start the Appium server, device or emulator, and open the application with _AppiumLibrary_ before calling `Run AI Mobile Test` or `Run AI Exploration`.
 - For API runs, load _RequestsLibrary_ in the suite and provide `base_url` or an already-initialized session context when relevant.
 - Install only the extras you need for the target mode and provider.
 - Set provider credentials through environment variables such as `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` when required.
 - If _SeleniumLibrary_, _RequestsLibrary_, or _AppiumLibrary_ is imported with an alias, pass the corresponding `selenium_library`, `requests_library`, or `appium_library` constructor argument so _AITester_ can attach to the existing session.
+- `Run AI Exploration` uses the library's configured `test_mode`; set `test_mode=mobile` at library import if you want mobile exploratory execution.
 
 ## Architecture
 
@@ -92,6 +105,7 @@ In practice, most web, API, mobile, and exploratory runs now use the direct exec
 
 ```bash
 # Base installation
+# Includes OpenAI-, Gemini-, and Ollama-compatible model support
 pip install robotframework-aitester
 
 # With web testing support
@@ -103,8 +117,8 @@ pip install robotframework-aitester[api]
 # With mobile testing support
 pip install robotframework-aitester[mobile]
 
-# With all testing modes and OpenAI
-pip install robotframework-aitester[all,openai]
+# With all testing modes
+pip install robotframework-aitester[all]
 
 # With Bedrock support
 pip install robotframework-aitester[all,bedrock]
@@ -112,11 +126,8 @@ pip install robotframework-aitester[all,bedrock]
 # With Anthropic support
 pip install robotframework-aitester[all,anthropic]
 
-# With Ollama (local models)
-pip install robotframework-aitester[all,ollama]
-
 # Development
-pip install robotframework-aitester[all,openai,dev]
+pip install robotframework-aitester[all,anthropic,bedrock,dev]
 ```
 
 Recommended production installs:
@@ -124,7 +135,8 @@ Recommended production installs:
 - `pip install robotframework-aitester[web]` for Selenium-based UI suites
 - `pip install robotframework-aitester[api]` for RequestsLibrary-based API suites
 - `pip install robotframework-aitester[mobile]` for Appium-based mobile suites
-- Add provider extras such as `[openai]`, `[anthropic]`, `[bedrock]`, or `[ollama]` when your selected GenAI backend needs them
+- Base install already includes OpenAI, Gemini, and Ollama provider support through `strands-agents[openai,ollama,gemini]`
+- Add `[anthropic]` or `[bedrock]` only when your selected GenAI backend needs those optional providers
 
 ## Quick Start
 
@@ -174,6 +186,10 @@ Those steps are treated as intent checkpoints rather than a pixel-perfect script
 The agent may insert minimal support actions, such as dismissing a cookie banner,
 opening a menu, waiting for the page to settle, or retrying after a transient blocker,
 as long as the requested business flow stays intact.
+
+If the flow hits a hard gate, the agent does not stop and wait for a human. It
+first tries suite-provided data via `get_rf_variable`, safe alternate visible
+paths, and evidence capture before failing the blocked step precisely.
 
 ### API Testing
 
@@ -232,6 +248,9 @@ state, and intended path explicit. It can now wait on loading indicators, work
 through common pickers, hide the on-screen keyboard, switch hybrid contexts,
 and use back navigation without dropping down to raw Appium commands.
 
+For mobile exploratory testing, import the library with `test_mode=mobile` and
+then call `Run AI Exploration`.
+
 ## Supported AI Platforms
 
 | Platform  | Default Model                     | Provider            | Notes                         |
@@ -242,7 +261,7 @@ and use back navigation without dropping down to raw Appium commands.
 | Gemini    | gemini-2.0-flash                  | Google AI           | Requires `GEMINI_API_KEY`     |
 | Anthropic | claude-sonnet-4-5                 | Anthropic API       | Requires `ANTHROPIC_API_KEY`  |
 | Bedrock   | us.anthropic.claude-sonnet-4-5-20251101-v1:0 | AWS Bedrock | Uses AWS credentials       |
-| Manual    | User-specified                    | OpenAI-compatible   | Custom endpoint               |
+| Manual    | User-specified                    | OpenAI-compatible   | Bring your own compatible endpoint; typically pair with explicit `model` and `base_url` |
 
 ## Configuration
 
@@ -276,7 +295,7 @@ Library    AITester
 | `platform`            | OpenAI     | AI platform (OpenAI, Ollama, Gemini, etc.)    |
 | `model`               | (varies)   | Model ID override                             |
 | `api_key`             | (env var)  | API key override; ignored for Docker Model, which always uses `dummy` |
-| `base_url`            | (varies)   | API base URL override                         |
+| `base_url`            | (varies)   | AI provider base URL override                 |
 | `max_iterations`      | 50         | Maximum agent iterations                      |
 | `test_mode`           | web        | Default test mode (web, api, mobile)          |
 | `headless`            | False      | Stored as configuration metadata; browser/app startup remains owned by SeleniumLibrary/AppiumLibrary |
@@ -296,11 +315,14 @@ For `platform=DockerModel`, _AITester_ automatically passes `api_key=dummy`
 to the OpenAI-compatible Strands client. No environment variable or
 constructor argument is required for that platform.
 
+For `platform=Manual`, pass the OpenAI-compatible endpoint details yourself,
+typically with both `model=` and `base_url=` and, if needed, `api_key=`.
+
 Important: _AITester_ can only drive sessions created by _SeleniumLibrary_/_AppiumLibrary_.
 If you open a browser/app manually or through another tool, the agent will not
 be able to interact with it.
 
-### Session Reuse (No New Browsers/Apps)
+### Session Reuse
 
 If an active Selenium or Appium session is detected, _AITester_ **reuses it**
 and **refuses to open a new session on a different device**. This prevents
@@ -308,6 +330,11 @@ cases like opening a desktop browser when an Android Appium browser is already
 running. Make sure the existing session is open before calling `Run AI*`,
 and set `selenium_library` / `appium_library` if you imported those libraries
 with aliases.
+
+If no active session exists, the web/mobile executors still have
+`selenium_open_browser` / `appium_open_application` available through the RF
+library bridge. In practice, deterministic suites work best when your setup
+opens the target browser or app explicitly and lets AITester reuse it.
 
 ```robot
 *** Settings ***
@@ -327,7 +354,7 @@ Reuse Existing Web Session
 | Keyword                     | Description                                       |
 |----------------------------|----------------------------------------------------|
 | `Run AI Test`              | Execute an autonomous test from a test objective (supports `test_steps`, `scroll_into_view`) |
-| `Run AI Exploration`       | Run exploratory testing with focus areas (supports `scroll_into_view`) |
+| `Run AI Exploration`       | Run exploratory testing with focus areas in the library's configured `test_mode` (supports `scroll_into_view`) |
 | `Run AI API Test`          | Execute autonomous REST API testing (supports `test_steps`, `scroll_into_view`) |
 | `Run AI Mobile Test`       | Execute autonomous mobile app testing (supports `test_steps`, `scroll_into_view`) |
 | `Get AI Platform Info`     | Return configured platform information             |
@@ -338,13 +365,15 @@ Reuse Existing Web Session
 
 - **Session reuse enforcement**: Existing Selenium/Appium sessions are reused and conflicting new sessions are refused.
 - **Destructive session protection**: Browser close/restart and mobile app close/reset/relaunch actions are blocked unless the user explicitly asked for them.
+- **Direct URL restraint**: After initial entry, UI executors are instructed to navigate like a real user through visible controls instead of jumping to internal URLs unless the user explicitly requested a concrete URL.
 - **Execution metadata**: `max_iterations` is passed into planner/executor prompts and stored on the active session for reporting.
 - **Session bookkeeping**: `timeout_seconds` and `max_cost_usd` initialize `SafetyGuard` metadata for the run.
+- **Autonomous recovery**: Executors are instructed to inspect state, clear blockers, inspect frames or contexts, reuse RF variables, and fail with precise evidence instead of pausing for human input.
 - **Post-run validation**: User-defined high-level steps and UI-action coverage are checked at session finalization for web/mobile runs.
 
 ## Integration with robotframework-aivision
 
-When [robotframework-aivision](https://github.com/robco/robotframework-aivision) is loaded alongside _AITester_, additional visual analysis capabilities become available to the agents, including screenshot analysis, visual regression detection, and accessibility validation.
+When [robotframework-aivision](https://github.com/robco/robotframework-aivision) is loaded alongside _AITester_, the shared `analyze_screenshot` tool can ask AI-vision questions about a captured screenshot. If AIVision is not loaded, the tool falls back to a plain text notice instead of breaking the run.
 
 ## Reporting
 
@@ -356,9 +385,14 @@ Robot Framework `6.0+` is supported, but `7.4+` gives the best HTML log
 rendering for embedded screenshots and richer keyword output.
 
 When you provide user-defined numbered test steps (via the `test_steps` argument
-or common step variables such as `${TEST_STEPS}` / `${AI_STEPS}`), those steps are treated as the main flow and
+or one of the common step variables `${TEST_STEPS}`, `${AI_STEPS}`,
+`${AI_TEST_STEPS}`, `${AITESTER_TEST_STEPS}`, or `${USER_TEST_STEPS}`), those steps are treated as the main flow and
 AI actions are grouped under them in
 the RF log with embedded screenshots for readability.
+
+If `test_steps` is omitted and AITester auto-detects one of those variables, it
+logs which variable was used. For clarity and repeatability, passing
+`test_steps=${TEST_STEPS}` explicitly is still recommended.
 
 If `test_objective` is left empty and no numbered steps are available, the
 `Run AI*` keywords now fail fast instead of silently improvising a generic flow.

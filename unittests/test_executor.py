@@ -64,6 +64,8 @@ class TestTestSession:
         assert session.direct_url_navigations_used == 0
         assert session.allowed_direct_urls == []
         assert session.allow_browser_termination is False
+        assert session.agent_iterations_by_agent == {}
+        assert session.action_history == []
 
     def test_create_session_reuse_flags(self):
         session = create_session(
@@ -133,6 +135,8 @@ class TestTestSession:
         assert data["direct_url_navigations_used"] == 0
         assert data["allowed_direct_urls"] == []
         assert data["allow_browser_termination"] is False
+        assert data["agent_iterations_by_agent"] == {}
+        assert data["action_history"] == []
 
     def test_record_step_function(self):
         session = create_session("test", "app")

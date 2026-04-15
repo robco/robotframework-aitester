@@ -182,6 +182,13 @@ class TestSession:
     ui_state_checks_total: int = 0
     ui_interactions_by_step: Dict[int, int] = field(default_factory=dict)
     ui_state_checks_by_step: Dict[int, int] = field(default_factory=dict)
+    agent_iterations_by_agent: Dict[str, int] = field(default_factory=dict)
+    action_history: List[str] = field(default_factory=list)
+    last_tool_action: Optional[str] = None
+    last_tool_status: Optional[str] = None
+    last_observation_summary: Optional[str] = None
+    last_ui_snapshot_fingerprint: Optional[str] = None
+    last_ui_snapshot_summary: Optional[str] = None
 
     @property
     def duration_seconds(self) -> float:
@@ -263,6 +270,13 @@ class TestSession:
             "direct_url_navigations_used": self.direct_url_navigations_used,
             "allowed_direct_urls": self.allowed_direct_urls,
             "allow_browser_termination": self.allow_browser_termination,
+            "agent_iterations_by_agent": self.agent_iterations_by_agent,
+            "action_history": self.action_history,
+            "last_tool_action": self.last_tool_action,
+            "last_tool_status": self.last_tool_status,
+            "last_observation_summary": self.last_observation_summary,
+            "last_ui_snapshot_fingerprint": self.last_ui_snapshot_fingerprint,
+            "last_ui_snapshot_summary": self.last_ui_snapshot_summary,
             "scenarios": [
                 {
                     "scenario_id": s.scenario_id,

@@ -137,7 +137,9 @@ def test_browser_analysis_tools_share_cached_snapshot(monkeypatch):
     assert "Document readyState: complete" in snapshot
     assert "Frames: 2" in snapshot
     assert "Possible blockers (1)" in snapshot
+    assert "Interactive element IDs: el-1" in snapshot
     assert "Found 1 interactive elements" in interactive
+    assert "id=el-1" in interactive
     assert "Headings (1)" in structure
     assert "Frames (2)" in structure
     assert "Hello world" in text
@@ -172,7 +174,7 @@ def test_get_form_fields_uses_snapshot_for_default_form(monkeypatch):
     fields = browser_analysis_tools.get_form_fields()
 
     assert "Form fields (2)" in fields
-    assert "username (input) [REQUIRED]: Email" in fields
+    assert "id=field-1-1 username (input) [REQUIRED]: Email" in fields
     assert driver.execute_script_calls == 1
 
 
@@ -204,7 +206,7 @@ def test_get_form_fields_reports_dropdown_metadata_from_snapshot(monkeypatch):
 
     fields = browser_analysis_tools.get_form_fields()
 
-    assert "country (select-one/native-select): Country" in fields
+    assert "id=field-1-3 country (select-one/native-select): Country" in fields
     assert "selected: France" in fields
     assert "options: France, Germany" in fields
 
@@ -235,9 +237,27 @@ def test_get_interactive_elements_reports_dropdown_kind_and_options(monkeypatch)
 
     interactive = browser_analysis_tools.get_interactive_elements()
 
+    assert "id=el-1" in interactive
     assert "kind=custom-dropdown" in interactive
     assert 'selected="Open"' in interactive
     assert "options=[Open, Closed]" in interactive
+
+
+def test_resolve_snapshot_target_supports_snapshot_id_and_label(monkeypatch):
+    browser_analysis_tools.invalidate_page_snapshot_cache()
+    driver = DummyDriver(sample_snapshot())
+    monkeypatch.setattr(
+        browser_analysis_tools,
+        "_get_selenium",
+        lambda: DummySelenium(driver),
+    )
+
+    snapshot = browser_analysis_tools._get_page_snapshot_data()
+    by_id = browser_analysis_tools.resolve_snapshot_target("el-1", snapshot=snapshot)
+    by_label = browser_analysis_tools.resolve_snapshot_target("submit", snapshot=snapshot)
+
+    assert by_id["locator"] == "id=submit"
+    assert by_label["snapshot_id"] == "el-1"
 
 
 def test_browser_analysis_tools_fallback_to_minimal_snapshot(monkeypatch):
@@ -258,6 +278,25 @@ def test_browser_analysis_tools_fallback_to_minimal_snapshot(monkeypatch):
     assert "Page: Fallback Example" in structure
     assert "Recovered text" in text
     assert len(driver.execute_script_calls) == 2
+
+
+def test_page_snapshot_transforms_are_applied(monkeypatch):
+    browser_analysis_tools.invalidate_page_snapshot_cache()
+    browser_analysis_tools.clear_page_snapshot_transforms()
+    browser_analysis_tools.register_page_snapshot_transform(
+        lambda snapshot: {**snapshot, "title": "Masked Example"}
+    )
+    driver = DummyDriver(sample_snapshot())
+    monkeypatch.setattr(
+        browser_analysis_tools,
+        "_get_selenium",
+        lambda: DummySelenium(driver),
+    )
+    try:
+        snapshot = browser_analysis_tools.get_page_snapshot()
+        assert "Page: Masked Example" in snapshot
+    finally:
+        browser_analysis_tools.clear_page_snapshot_transforms()
 
 
 def test_get_frame_inventory_uses_snapshot_frame_metadata(monkeypatch):

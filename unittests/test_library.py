@@ -55,11 +55,19 @@ def test_libdoc_docs_render_cleanly(tmp_path):
     spec = json.loads(output.read_text())
     init_doc = spec["inits"][0]["doc"]
     run_test_doc = next(kw["doc"] for kw in spec["keywords"] if kw["name"] == "Run AI Test")
+    exploration_doc = next(
+        kw["doc"] for kw in spec["keywords"] if kw["name"] == "Run AI Exploration"
+    )
 
     assert "Args:" not in init_doc
     assert "<li><code>platform</code>" in init_doc
+    assert "platform=Manual" in init_doc
+    assert "AI provider base URL override" in init_doc
     assert "<pre>" not in run_test_doc
     assert "test_objective=${API_OBJECTIVE}" in run_test_doc
+    assert "test_steps=${AI_STEPS}" in run_test_doc
+    assert "manual intervention" not in run_test_doc.lower()
+    assert "test_mode=mobile" in exploration_doc
 
 
 def test_extract_user_defined_steps_from_list_objective():
@@ -115,6 +123,36 @@ def test_validate_user_step_completion_ignores_diagnostic_passes():
             duration_ms=10,
             high_level_step_number=1,
             high_level_step_description="Verify order finished successfully",
+        )
+    )
+
+    msg = tester._validate_user_step_completion(session)
+
+    assert msg is not None
+    assert "No passed actions" in msg
+
+
+def test_validate_user_step_completion_ignores_rf_variable_passes():
+    tester = AITester()
+
+    session = create_session(
+        objective="Test",
+        app_context="App",
+        test_mode="web",
+        max_iterations=1,
+        high_level_steps=["Complete gated sign-in flow"],
+    )
+    session.current_high_level_step = 1
+    session.current_high_level_step_description = "Complete gated sign-in flow"
+    session.add_step(
+        TestStep(
+            step_number=1,
+            action="get_rf_variable",
+            description="variable_name=${OTP_CODE}",
+            status=StepStatus.PASSED,
+            duration_ms=10,
+            high_level_step_number=1,
+            high_level_step_description="Complete gated sign-in flow",
         )
     )
 

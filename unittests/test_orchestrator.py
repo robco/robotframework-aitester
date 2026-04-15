@@ -13,12 +13,14 @@ class FakeAgent:
         tools=None,
         conversation_manager=None,
         callback_handler=None,
+        hooks=None,
         name=None,
         description=None,
     ):
         self.system_prompt = system_prompt
         self.model = model
         self.tools = tools or []
+        self.hooks = hooks or []
         self.name = name
         self.description = description
         self.calls = []
@@ -94,10 +96,15 @@ def test_run_skips_planner_for_user_defined_steps(monkeypatch):
     assert "selenium_handle_common_blockers" in executor.calls[0]
     assert "get_frame_inventory" in executor.calls[0]
     assert "Treat user-provided steps as ordered intent checkpoints" in executor.calls[0]
+    assert "Prefer semantic snapshot-driven tools over raw locator guessing" in executor.calls[0]
+    assert "get_execution_observations" in executor.calls[0]
+    assert "Do not pause for human input" in executor.calls[0]
+    assert "get_rf_variable" in executor.calls[0]
     assert "reach pages by clicking visible links" in executor.calls[0]
     assert "unless the user explicitly instructs a concrete URL to open" in executor.calls[0]
     assert "Do not close or restart the browser as a recovery step" in executor.calls[0]
     assert "switch into the most likely iframe with `selenium_select_frame`" in executor.calls[0]
+    assert "selenium_click_snapshot_element" in executor.calls[0]
 
 
 def test_run_extracts_numbered_steps_from_objective(monkeypatch):
@@ -146,6 +153,10 @@ def test_run_skips_planner_for_mobile_user_defined_steps(monkeypatch):
     assert "appium_handle_common_interruptions" in executor.calls[0]
     assert "appium_get_context_inventory" in executor.calls[0]
     assert "appium_switch_context" in executor.calls[0]
+    assert "appium_click_snapshot_element" in executor.calls[0]
+    assert "get_execution_observations" in executor.calls[0]
+    assert "Do not pause for human input" in executor.calls[0]
+    assert "get_rf_variable" in executor.calls[0]
     assert "navigate with visible taps, swipes, scrolls" in executor.calls[0]
     assert "Do not close, reset, or relaunch the application" in executor.calls[0]
 
@@ -171,3 +182,16 @@ def test_run_exploration_uses_direct_executor(monkeypatch):
     assert "Focus Areas: checkout" in executor.calls[0]
     assert "get_page_snapshot" in executor.calls[0]
     assert "get_frame_inventory" in executor.calls[0]
+    assert "get_execution_observations" in executor.calls[0]
+
+
+def test_build_agents_attaches_session_tracking_hooks(monkeypatch):
+    build_orchestrator(monkeypatch, {"SeleniumLibrary": object()})
+
+    planner = get_agent("Test Planner")
+    executor = get_agent("Web Executor")
+    supervisor = get_agent("Supervisor")
+
+    assert len(planner.hooks) == 1
+    assert len(executor.hooks) == 1
+    assert len(supervisor.hooks) == 1
