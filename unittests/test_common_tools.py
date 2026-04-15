@@ -100,6 +100,27 @@ def test_instrument_tool_derives_failed_from_result(active_session):
     assert step.assertion_message.startswith("FAIL:")
 
 
+def test_instrument_tool_stops_when_runtime_limit_is_reached():
+    session = create_session("test", "app", timeout_seconds=1.0)
+    session.start_time -= 2.0
+    set_active_session(session)
+
+    try:
+        @tool
+        def sample_tool() -> str:
+            raise AssertionError("tool should not run")
+
+        common_tools.instrument_tool(sample_tool)
+
+        with pytest.raises(RuntimeError) as exc:
+            sample_tool()
+
+        assert "Session timeout reached" in str(exc.value)
+        assert session.total_steps == 0
+    finally:
+        set_active_session(None)
+
+
 def test_instrument_tool_records_assertion_error(active_session):
     @tool
     def assert_tool() -> str:
@@ -214,6 +235,111 @@ def test_record_tool_step_invalidates_mobile_snapshot_cache_for_context_switch(m
     )
 
     assert invalidations == [None]
+
+
+def test_record_tool_step_keeps_browser_snapshot_cache_for_loading_wait(monkeypatch):
+    invalidations = []
+    monkeypatch.setattr(
+        browser_analysis_tools,
+        "invalidate_page_snapshot_cache",
+        lambda driver=None: invalidations.append(driver),
+    )
+    monkeypatch.setattr(common_tools, "_log_ai_step_to_rf", lambda **kwargs: None)
+
+    common_tools._record_tool_step(
+        action="selenium_wait_for_loading_to_finish",
+        description="Wait for page to stabilize",
+        status=StepStatus.PASSED,
+        duration_ms=5.0,
+    )
+
+    assert invalidations == []
+
+
+def test_record_tool_step_keeps_mobile_snapshot_cache_for_loading_wait(monkeypatch):
+    invalidations = []
+    monkeypatch.setattr(
+        mobile_tools,
+        "invalidate_mobile_snapshot_cache",
+        lambda driver=None: invalidations.append(driver),
+    )
+    monkeypatch.setattr(common_tools, "_log_ai_step_to_rf", lambda **kwargs: None)
+
+    common_tools._record_tool_step(
+        action="appium_wait_for_loading_to_finish",
+        description="Wait for screen to stabilize",
+        status=StepStatus.PASSED,
+        duration_ms=5.0,
+    )
+
+    assert invalidations == []
+
+
+def test_record_tool_step_auto_advances_high_level_step_when_next_step_matches(monkeypatch):
+    session = create_session(
+        "test",
+        "app",
+        high_level_steps=["Log in as admin", "Verify dashboard"],
+    )
+    session.current_high_level_step = 1
+    session.current_high_level_step_description = "Log in as admin"
+    common_tools.record_step_impl(
+        session=session,
+        action="selenium_click_element",
+        description="locator=id:submit-login",
+        status=StepStatus.PASSED,
+        duration_ms=5.0,
+    )
+    set_active_session(session)
+
+    try:
+        monkeypatch.setattr(common_tools, "_log_ai_step_to_rf", lambda **kwargs: None)
+
+        common_tools._record_tool_step(
+            action="selenium_element_should_be_visible",
+            description="locator=.dashboard",
+            status=StepStatus.PASSED,
+            duration_ms=5.0,
+        )
+
+        assert session.current_high_level_step == 2
+        assert session.steps[-1].high_level_step_number == 2
+        assert session.steps[-1].high_level_step_description == "Verify dashboard"
+    finally:
+        set_active_session(None)
+
+
+def test_record_tool_step_keeps_current_high_level_step_when_next_step_does_not_match(monkeypatch):
+    session = create_session(
+        "test",
+        "app",
+        high_level_steps=["Log in as admin", "Verify dashboard"],
+    )
+    session.current_high_level_step = 1
+    session.current_high_level_step_description = "Log in as admin"
+    common_tools.record_step_impl(
+        session=session,
+        action="selenium_click_element",
+        description="locator=id:login",
+        status=StepStatus.PASSED,
+        duration_ms=5.0,
+    )
+    set_active_session(session)
+
+    try:
+        monkeypatch.setattr(common_tools, "_log_ai_step_to_rf", lambda **kwargs: None)
+
+        common_tools._record_tool_step(
+            action="selenium_input_text",
+            description="locator=id:password, text=***",
+            status=StepStatus.PASSED,
+            duration_ms=5.0,
+        )
+
+        assert session.current_high_level_step == 1
+        assert session.steps[-1].high_level_step_number == 1
+    finally:
+        set_active_session(None)
 
 
 def test_track_ui_action_counts_mobile_swipe_and_state_checks():

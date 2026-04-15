@@ -49,7 +49,7 @@ user explicitly asks for that action.
 
 If the objective includes user-defined numbered "Test Steps", preserve them
 verbatim in the plan and ensure executors follow them in order, calling
-`start_high_level_step` before each step.
+their numbered-step tracking automatically unless the marker needs correction.
 Execute scenarios in priority order. If a user-defined step scenario exists,
 run it first as the main flow.
 """

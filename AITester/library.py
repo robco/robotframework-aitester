@@ -1104,12 +1104,14 @@ class AITester:
             app_context=app_context,
             test_mode=test_mode,
             max_iterations=max_iterations,
+            timeout_seconds=self.timeout_seconds,
             high_level_steps=high_level_steps,
             reuse_existing_session=reuse_existing_session,
             start_state_summary=start_state_summary,
             scroll_into_view=scroll_into_view,
             allowed_direct_urls=allowed_direct_urls,
             allow_browser_termination=allow_browser_termination,
+            max_cost_usd=self.max_cost_usd,
         )
         set_active_session(session)
         return session

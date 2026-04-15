@@ -164,8 +164,10 @@ class TestSession:
     steps: List[TestStep] = field(default_factory=list)
     iterations_used: int = 0
     max_iterations: int = 50
+    timeout_seconds: float = 600.0
     status: SessionStatus = SessionStatus.RUNNING
     cost_usd: float = 0.0
+    max_cost_usd: Optional[float] = None
     screenshots: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     agent_log: List[Dict[str, Any]] = field(default_factory=list)
@@ -259,11 +261,13 @@ class TestSession:
             "duration_seconds": round(self.duration_seconds, 2),
             "iterations_used": self.iterations_used,
             "max_iterations": self.max_iterations,
+            "timeout_seconds": round(self.timeout_seconds, 2),
             "total_steps": self.total_steps,
             "passed_steps": self.passed_steps,
             "failed_steps": self.failed_steps,
             "pass_rate": round(self.pass_rate, 1),
             "cost_usd": round(self.cost_usd, 4),
+            "max_cost_usd": self.max_cost_usd,
             "screenshots": self.screenshots,
             "errors": self.errors,
             "high_level_steps": self.high_level_steps,
@@ -462,12 +466,14 @@ def create_session(
     app_context: str,
     test_mode: str = "web",
     max_iterations: int = 50,
+    timeout_seconds: float = 600.0,
     high_level_steps: Optional[List[str]] = None,
     reuse_existing_session: bool = False,
     start_state_summary: Optional[str] = None,
     scroll_into_view: bool = True,
     allowed_direct_urls: Optional[List[str]] = None,
     allow_browser_termination: bool = False,
+    max_cost_usd: Optional[float] = None,
 ) -> TestSession:
     """Factory function to create a new test session.
 
@@ -493,13 +499,38 @@ def create_session(
         app_context=app_context,
         test_mode=test_mode,
         max_iterations=max_iterations,
+        timeout_seconds=timeout_seconds,
         high_level_steps=high_level_steps or [],
         reuse_existing_session=reuse_existing_session,
         start_state_summary=start_state_summary,
         scroll_into_view=scroll_into_view,
         allowed_direct_urls=allowed_direct_urls or [],
         allow_browser_termination=allow_browser_termination,
+        max_cost_usd=max_cost_usd,
     )
+
+
+def get_runtime_limit_violation(session: Optional[TestSession]) -> Optional[str]:
+    """Return a human-readable runtime limit violation, if any."""
+    if not session:
+        return None
+
+    elapsed = time.time() - session.start_time
+    timeout_seconds = float(getattr(session, "timeout_seconds", 0.0) or 0.0)
+    if timeout_seconds > 0 and elapsed >= timeout_seconds:
+        return (
+            "Session timeout reached: "
+            f"{elapsed:.1f}s elapsed (limit: {timeout_seconds:.1f}s)."
+        )
+
+    max_cost_usd = getattr(session, "max_cost_usd", None)
+    if max_cost_usd is not None and session.cost_usd >= max_cost_usd:
+        return (
+            "Session cost limit reached: "
+            f"${session.cost_usd:.4f} spent (limit: ${float(max_cost_usd):.4f})."
+        )
+
+    return None
 
 
 def record_step(

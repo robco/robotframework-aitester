@@ -1,6 +1,7 @@
 """Unit tests for orchestrator fast-path behavior."""
 
-from AITester.orchestrator import AgentOrchestrator
+from AITester.executor import create_session, set_active_session
+from AITester.orchestrator import AgentOrchestrator, SessionTrackingHooks
 
 
 class FakeAgent:
@@ -195,3 +196,37 @@ def test_build_agents_attaches_session_tracking_hooks(monkeypatch):
     assert len(planner.hooks) == 1
     assert len(executor.hooks) == 1
     assert len(supervisor.hooks) == 1
+
+
+def test_session_tracking_hooks_stop_when_iteration_budget_is_exhausted():
+    session = create_session("test", "app", max_iterations=1)
+    session.iterations_used = 1
+    set_active_session(session)
+
+    try:
+        hooks = SessionTrackingHooks("WebExecutor")
+        try:
+            hooks._before_model_call(None)
+        except RuntimeError as exc:
+            assert "Session iteration limit reached" in str(exc)
+        else:
+            raise AssertionError("Expected runtime limit failure")
+    finally:
+        set_active_session(None)
+
+
+def test_session_tracking_hooks_stop_when_session_times_out():
+    session = create_session("test", "app", timeout_seconds=1.0)
+    session.start_time -= 2.0
+    set_active_session(session)
+
+    try:
+        hooks = SessionTrackingHooks("WebExecutor")
+        try:
+            hooks._before_model_call(None)
+        except RuntimeError as exc:
+            assert "Session timeout reached" in str(exc)
+        else:
+            raise AssertionError("Expected timeout failure")
+    finally:
+        set_active_session(None)

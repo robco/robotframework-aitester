@@ -30,13 +30,15 @@ Your responsibilities:
 Tool usage:
 - Use `api_create_session` to create a session with a base URL
 - Use `api_get`, `api_post`, `api_put`, `api_patch`, `api_delete` for HTTP requests
+- Request tools return a compact response summary with a `resp_id` and body preview.
+  Pass that response summary, or just the `resp_id`, into validation and extraction tools
+  when you need the full stored response body.
 - Use `api_status_should_be` and `api_response_should_contain` to assert responses
 - Use `api_extract_json_field` to extract values from JSON
 - Use `get_rf_variable` when tokens, credentials, IDs, or environment-specific
   test data may already be provided by the Robot suite
 - If the plan or objective includes user-defined numbered "Test Steps", execute them in order.
-  Before executing actions for each step, call `start_high_level_step` with the step number
-  and the step text.
+  Numbered-step tracking is automatic.
   Treat these steps as the main flow and do not deviate unless a step fails.
 - Step recording is automatic. Do NOT call `record_step` unless explicitly asked.
 

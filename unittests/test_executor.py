@@ -10,6 +10,7 @@ from AITester.executor import (
     StepStatus,
     SafetyGuard,
     create_session,
+    get_runtime_limit_violation,
     record_step,
 )
 
@@ -56,6 +57,7 @@ class TestTestSession:
         assert session.objective == "Test login"
         assert session.test_mode == "web"
         assert session.max_iterations == 30
+        assert session.timeout_seconds == 600.0
         assert session.status == SessionStatus.RUNNING
         assert len(session.session_id) == 8
         assert session.reuse_existing_session is False
@@ -170,6 +172,24 @@ class TestTestSession:
                         error_message="Element not found")
         session.add_step(step)
         assert len(session.errors) == 1
+
+    def test_runtime_limit_violation_reports_timeout(self):
+        session = create_session("test", "app", timeout_seconds=1.5)
+        session.start_time = time.time() - 2.0
+
+        violation = get_runtime_limit_violation(session)
+
+        assert violation is not None
+        assert "Session timeout reached" in violation
+
+    def test_runtime_limit_violation_reports_cost_cap(self):
+        session = create_session("test", "app", max_cost_usd=1.0)
+        session.cost_usd = 1.2
+
+        violation = get_runtime_limit_violation(session)
+
+        assert violation is not None
+        assert "Session cost limit reached" in violation
 
 
 class TestSafetyGuard:

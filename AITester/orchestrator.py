@@ -43,10 +43,13 @@ from .prompts import (
 from .tools.web_tools import WEB_TOOLS
 from .tools.api_tools import API_TOOLS
 from .tools.mobile_tools import MOBILE_TOOLS
-from .tools.common_tools import COMMON_TOOLS
+from .tools.common_tools import (
+    API_EXECUTOR_COMMON_TOOLS,
+    EXECUTOR_COMMON_TOOLS,
+)
 from .tools.browser_analysis_tools import BROWSER_ANALYSIS_TOOLS
 from .tools.mobile_analysis_tools import MOBILE_ANALYSIS_TOOLS
-from .executor import get_active_session
+from .executor import get_active_session, get_runtime_limit_violation
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,17 @@ class SessionTrackingHooks:
         session = get_active_session()
         if not session:
             return
+        violation = get_runtime_limit_violation(session)
+        if violation:
+            session.last_observation_summary = violation
+            raise RuntimeError(violation)
+        if session.iterations_used >= session.max_iterations:
+            violation = (
+                "Session iteration limit reached before the next model call: "
+                f"{session.iterations_used}/{session.max_iterations}."
+            )
+            session.last_observation_summary = violation
+            raise RuntimeError(violation)
         session.iterations_used += 1
         session.agent_iterations_by_agent[self.agent_name] = (
             session.agent_iterations_by_agent.get(self.agent_name, 0) + 1
@@ -171,7 +185,7 @@ class AgentOrchestrator:
         self.planner = Agent(
             system_prompt=TEST_PLANNER_PROMPT,
             model=self.model,
-            tools=COMMON_TOOLS,
+            tools=[],
             conversation_manager=SlidingWindowConversationManager(
                 window_size=10,
             ),
@@ -184,11 +198,11 @@ class AgentOrchestrator:
         # ---- Web Executor Agent ----
         web_tools = []
         if "SeleniumLibrary" in self.available_libraries:
-            web_tools = WEB_TOOLS + BROWSER_ANALYSIS_TOOLS + COMMON_TOOLS
+            web_tools = WEB_TOOLS + BROWSER_ANALYSIS_TOOLS + EXECUTOR_COMMON_TOOLS
         self.web_executor = Agent(
             system_prompt=WEB_EXECUTOR_PROMPT,
             model=self.model,
-            tools=web_tools if web_tools else COMMON_TOOLS,
+            tools=web_tools if web_tools else EXECUTOR_COMMON_TOOLS,
             conversation_manager=SlidingWindowConversationManager(
                 window_size=20,
             ),
@@ -201,11 +215,11 @@ class AgentOrchestrator:
         # ---- API Executor Agent ----
         api_tools = []
         if "RequestsLibrary" in self.available_libraries:
-            api_tools = API_TOOLS + COMMON_TOOLS
+            api_tools = API_TOOLS + API_EXECUTOR_COMMON_TOOLS
         self.api_executor = Agent(
             system_prompt=API_EXECUTOR_PROMPT,
             model=self.model,
-            tools=api_tools if api_tools else COMMON_TOOLS,
+            tools=api_tools if api_tools else API_EXECUTOR_COMMON_TOOLS,
             conversation_manager=SlidingWindowConversationManager(
                 window_size=20,
             ),
@@ -218,11 +232,11 @@ class AgentOrchestrator:
         # ---- Mobile Executor Agent ----
         mobile_tools = []
         if "AppiumLibrary" in self.available_libraries:
-            mobile_tools = MOBILE_TOOLS + MOBILE_ANALYSIS_TOOLS + COMMON_TOOLS
+            mobile_tools = MOBILE_TOOLS + MOBILE_ANALYSIS_TOOLS + EXECUTOR_COMMON_TOOLS
         self.mobile_executor = Agent(
             system_prompt=MOBILE_EXECUTOR_PROMPT,
             model=self.model,
-            tools=mobile_tools if mobile_tools else COMMON_TOOLS,
+            tools=mobile_tools if mobile_tools else EXECUTOR_COMMON_TOOLS,
             conversation_manager=SlidingWindowConversationManager(
                 window_size=20,
             ),

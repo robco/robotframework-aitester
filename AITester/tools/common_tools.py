@@ -14,6 +14,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import time
 import shutil
 from typing import Any, Iterable, Optional
@@ -22,7 +23,12 @@ from strands.tools.decorator import DecoratedFunctionTool
 from robot.libraries.BuiltIn import BuiltIn, RobotNotRunningError
 from robot.api import logger as rf_logger
 
-from ..executor import StepStatus, record_step as record_step_impl, get_active_session
+from ..executor import (
+    StepStatus,
+    get_active_session,
+    get_runtime_limit_violation,
+    record_step as record_step_impl,
+)
 
 logger = logging.getLogger(__name__)
 _SCREENSHOT_OUTPUT_CACHE = {}
@@ -165,14 +171,6 @@ WEB_UI_MUTATION_ACTIONS = {
     "selenium_press_keys",
     "selenium_scroll_element_into_view",
     "selenium_handle_common_blockers",
-    "selenium_wait_until_element_is_visible",
-    "selenium_wait_until_element_is_enabled",
-    "selenium_wait_until_page_contains",
-    "selenium_wait_until_page_contains_element",
-    "selenium_wait_until_element_is_not_visible",
-    "selenium_wait_until_page_does_not_contain",
-    "selenium_wait_until_page_does_not_contain_element",
-    "selenium_wait_for_loading_to_finish",
     "selenium_execute_javascript",
     "selenium_switch_window",
     "selenium_select_frame",
@@ -205,6 +203,165 @@ MOBILE_UI_MUTATION_ACTIONS = {
     "appium_input_text_by_snapshot",
     "appium_select_picker_option_by_snapshot",
 }
+
+_HIGH_LEVEL_STEP_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+_HIGH_LEVEL_STEP_STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "into",
+    "onto",
+    "that",
+    "this",
+    "then",
+    "than",
+    "when",
+    "while",
+    "your",
+    "after",
+    "before",
+    "using",
+    "user",
+    "page",
+    "screen",
+    "element",
+    "button",
+    "field",
+    "form",
+    "item",
+    "step",
+    "should",
+}
+_NON_QUALIFYING_HIGH_LEVEL_ACTIONS = {
+    "record_step",
+    "start_high_level_step",
+    "sleep_seconds",
+    "log_message",
+    "log_step_result",
+    "get_current_timestamp",
+    "get_execution_observations",
+    "analyze_screenshot",
+    "get_rf_variable",
+    "selenium_capture_page_screenshot",
+    "selenium_get_text",
+    "selenium_get_element_attribute",
+    "selenium_get_value",
+    "selenium_get_location",
+    "get_page_snapshot",
+    "get_loading_state",
+    "get_page_structure",
+    "get_interactive_elements",
+    "get_page_text_content",
+    "get_all_links",
+    "get_frame_inventory",
+    "get_form_fields",
+    "check_page_errors",
+    "appium_capture_page_screenshot",
+    "appium_get_text",
+    "appium_get_element_attribute",
+    "appium_get_view_snapshot",
+    "appium_get_source",
+}
+
+
+def _enforce_runtime_limits(session) -> None:
+    violation = get_runtime_limit_violation(session)
+    if not violation:
+        return
+    session.last_observation_summary = violation
+    raise RuntimeError(violation)
+
+
+def _normalize_high_level_step_text(text: str) -> str:
+    normalized = str(text or "").lower()
+    phrase_replacements = (
+        ("log in", "login"),
+        ("sign in", "login"),
+        ("sign-in", "login"),
+        ("sign up", "signup"),
+        ("sign-up", "signup"),
+        ("check out", "checkout"),
+        ("check-out", "checkout"),
+    )
+    for source, target in phrase_replacements:
+        normalized = normalized.replace(source, target)
+    return normalized
+
+
+def _tokenize_high_level_step_text(text: str) -> set[str]:
+    normalized = _normalize_high_level_step_text(text)
+    return {
+        token
+        for token in _HIGH_LEVEL_STEP_TOKEN_PATTERN.findall(normalized)
+        if len(token) > 2 and token not in _HIGH_LEVEL_STEP_STOPWORDS
+    }
+
+
+def _score_high_level_step_match(step_text: str, action: str, description: str) -> int:
+    step_tokens = _tokenize_high_level_step_text(step_text)
+    if not step_tokens:
+        return 0
+
+    observed_tokens = _tokenize_high_level_step_text(f"{action} {description}")
+    score = len(step_tokens & observed_tokens)
+
+    normalized_step = _normalize_high_level_step_text(step_text).strip()
+    normalized_observed = _normalize_high_level_step_text(f"{action} {description}")
+    if normalized_step and normalized_step in normalized_observed:
+        score += 2
+
+    return score
+
+
+def _is_qualifying_high_level_action(action: str, status: StepStatus) -> bool:
+    if status is not StepStatus.PASSED:
+        return False
+    return str(action or "").strip() not in _NON_QUALIFYING_HIGH_LEVEL_ACTIONS
+
+
+def _current_step_has_qualifying_pass(session, step_number: int) -> bool:
+    for step in reversed(getattr(session, "steps", [])):
+        if step.high_level_step_number != step_number:
+            continue
+        if _is_qualifying_high_level_action(step.action, step.status):
+            return True
+    return False
+
+
+def _maybe_auto_advance_high_level_step(session, action: str, description: str) -> None:
+    if not session or not session.high_level_steps:
+        return
+
+    if session.current_high_level_step is None:
+        _set_high_level_step(
+            session=session,
+            step_number=1,
+            step_description=session.high_level_steps[0],
+            source="auto",
+        )
+        return
+
+    current_index = int(session.current_high_level_step)
+    if current_index >= len(session.high_level_steps):
+        return
+    if not _current_step_has_qualifying_pass(session, current_index):
+        return
+
+    current_text = session.high_level_steps[current_index - 1]
+    next_text = session.high_level_steps[current_index]
+    current_score = _score_high_level_step_match(current_text, action, description)
+    next_score = _score_high_level_step_match(next_text, action, description)
+    if next_score <= 0 or next_score <= current_score:
+        return
+
+    _set_high_level_step(
+        session=session,
+        step_number=current_index + 1,
+        step_description=next_text,
+        source="auto",
+    )
 
 
 def _track_ui_action(session, action_name: str, status: StepStatus) -> None:
@@ -816,12 +973,11 @@ def _record_tool_step(
 ) -> None:
     session = get_active_session()
     normalized_screenshot = _ensure_screenshot_in_output_dir(screenshot_path)
-    if session and session.high_level_steps and session.current_high_level_step is None:
-        _set_high_level_step(
+    if session and session.high_level_steps:
+        _maybe_auto_advance_high_level_step(
             session=session,
-            step_number=1,
-            step_description=session.high_level_steps[0],
-            source="auto",
+            action=action,
+            description=description,
         )
     if session:
         record_step_impl(
@@ -862,6 +1018,10 @@ def instrument_tool(tool_obj: Any) -> Any:
 
     @functools.wraps(original_func)
     def wrapped(*args, **kwargs):
+        session = get_active_session()
+        if session:
+            _enforce_runtime_limits(session)
+
         start = time.time()
         error = None
         result = None
@@ -937,12 +1097,11 @@ def record_step(
     duration = _coerce_float(duration_ms)
     session = get_active_session()
     normalized_screenshot = _ensure_screenshot_in_output_dir(screenshot_path)
-    if session and session.high_level_steps and session.current_high_level_step is None:
-        _set_high_level_step(
+    if session and session.high_level_steps:
+        _maybe_auto_advance_high_level_step(
             session=session,
-            step_number=1,
-            step_description=session.high_level_steps[0],
-            source="auto",
+            action=action,
+            description=description,
         )
     if session:
         record_step_impl(
@@ -1190,5 +1349,23 @@ COMMON_TOOLS = [
     get_current_timestamp,
     get_execution_observations,
     analyze_screenshot,
+    get_rf_variable,
+]
+
+EXECUTOR_COMMON_TOOLS = [
+    start_high_level_step,
+    get_execution_observations,
+    analyze_screenshot,
+    get_rf_variable,
+]
+
+API_EXECUTOR_COMMON_TOOLS = [
+    assert_equal,
+    assert_contains,
+    assert_not_contains,
+    assert_greater_than,
+    assert_matches_pattern,
+    parse_json,
+    get_execution_observations,
     get_rf_variable,
 ]
