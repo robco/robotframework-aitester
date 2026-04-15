@@ -60,18 +60,28 @@ class AITester:
     with native Robot Framework library integration. Users supply a test
     objective or numbered flow and the agent plans or reuses a path, executes
     it, adapts around transient blockers, and reports the outcome in standard
-    Robot Framework logs.
+    Robot Framework logs. The executor contract is fully autonomous: when a
+    flow stalls, the agent inspects state, clears blockers, reuses RF
+    variables when available, and fails blocked steps with precise evidence
+    instead of pausing for human intervention.
 
     Supported test modes:
     - web: Selenium-based browser testing (requires SeleniumLibrary)
     - api: REST API testing (requires RequestsLibrary)
     - mobile: Appium-based mobile testing (requires AppiumLibrary)
 
-    Supported AI platforms: OpenAI, Ollama, Docker Model, Gemini, Anthropic, Bedrock
+    Supported AI platforms: OpenAI, Ollama, Docker Model, Gemini, Anthropic,
+    Bedrock, Manual
 
     Notes:
-    - UI modes reuse existing SeleniumLibrary or AppiumLibrary sessions instead
-      of provisioning browsers or mobile apps automatically.
+    - Direct single-mode runs use a fast path. User-defined numbered steps skip
+      planning and run directly in the target executor.
+    - UI modes are strongly session-reuse oriented. For deterministic suites,
+      open the browser or application with SeleniumLibrary or AppiumLibrary
+      first so AITester can attach to that active session.
+    - When no active UI session exists, the web/mobile executors can still use
+      the underlying RF tools to create the initial session if the environment
+      supports it.
     - Web is the broadest and most mature executor path.
     - Mobile supports guided native and hybrid flows with interruption handling,
       loading waits, picker helpers, keyboard control, context switching, and
@@ -80,6 +90,8 @@ class AITester:
     Examples:
     | Library | AITester | platform=OpenAI | api_key=%{OPENAI_API_KEY} | model=gpt-4o |
     | Library | AITester | platform=Ollama | model=llama3.3 |
+    | Library | AITester | platform=Manual | model=my-model | base_url=http://localhost:4000/v1 |
+    | Library | AITester | platform=OpenAI | test_mode=mobile | appium_library=MyAppium |
     """
 
     ROBOT_LIBRARY_SCOPE = "GLOBAL"
@@ -142,27 +154,32 @@ class AITester:
 
         The constructor configures the AI platform, default test mode, and
         aliases to already-loaded Robot Framework libraries that agent tools
-        can reuse.
+        can reuse. It also stores runtime guardrail metadata such as iteration,
+        timeout, and cost limits.
 
         Arguments:
         - ``platform``: AI platform name. Supported values include ``OpenAI``,
-          ``Ollama``, ``Gemini``, ``Anthropic``, ``Bedrock``, and ``Manual``.
+          ``Ollama``, ``DockerModel``, ``Gemini``, ``Anthropic``,
+          ``Bedrock``, and ``Manual``.
         - ``model``: Optional model ID override. Uses the platform default when
           not specified.
         - ``api_key``: Optional API key override. Resolves from environment
           defaults when not specified. Ignored for ``DockerModel``, which
           always uses the fixed ``dummy`` key required by its OpenAI-compatible
           endpoint.
-        - ``base_url``: Optional base URL override. Uses the platform default
-          when not specified.
+        - ``base_url``: Optional AI provider base URL override. Uses the
+          platform default when not specified. For ``Manual``, this is
+          typically the OpenAI-compatible endpoint you want to target.
         - ``max_iterations``: Maximum agent iterations per test run. Default
           is ``50``.
         - ``test_mode``: Default testing mode. Supported values are ``web``,
           ``api``, and ``mobile``. Default is ``web``.
-        - ``headless``: Run browser sessions in headless mode. Default is
-          ``False``.
-        - ``screenshot_on_action``: Capture screenshots after actions. Default
-          is ``True``.
+        - ``headless``: Stored as configuration metadata for caller awareness.
+          Browser or app startup is still owned by SeleniumLibrary or
+          AppiumLibrary. Default is ``False``.
+        - ``screenshot_on_action``: Reserved for future screenshot policy
+          tuning. Current prompts and tool calls still decide when screenshots
+          are captured. Default is ``True``.
         - ``verbose``: Enable verbose agent logging. Default is ``False``.
         - ``report_formats``: Deprecated constructor argument kept for
           backward compatibility.
@@ -179,12 +196,20 @@ class AITester:
         Notes:
         - ``report_formats`` is ignored. Robot Framework built-in reporting is
           used instead.
-        - For web and mobile runs, open the browser or application with
-          SeleniumLibrary or AppiumLibrary first so AITester can reuse that
-          active session.
+        - For deterministic web and mobile runs, open the browser or
+          application with SeleniumLibrary or AppiumLibrary first so AITester
+          can reuse that active session.
+        - If SeleniumLibrary, RequestsLibrary, or AppiumLibrary was imported
+          with an alias, pass the matching ``*_library`` constructor argument.
         - Robot Framework ``6.0+`` is supported. ``7.4+`` provides the best
           built-in HTML log rendering for embedded screenshots and detailed
           keyword output.
+
+        Examples:
+        | Library | AITester | platform=OpenAI | api_key=%{OPENAI_API_KEY} | model=gpt-4o |
+        | Library | AITester | platform=DockerModel | model=ai/qwen3-vl:8B-Q8_K_XL |
+        | Library | AITester | platform=Manual | model=my-model | base_url=http://localhost:4000/v1 |
+        | Library | AITester | platform=OpenAI | selenium_library=Web | requests_library=Api |
         """
         try:
             self.platform = Platforms[platform]
@@ -1209,7 +1234,8 @@ class AITester:
 
         This keyword is primarily used by the agent runtime to group detailed
         actions under a broader business step. It can also be used manually if
-        you want custom RF logs to mirror the same structure.
+        you want custom RF logs or wrapper keywords to mirror the same
+        structure as native AI execution.
 
         Arguments:
         - ``step_number``: 1-based business step number.
@@ -1220,10 +1246,18 @@ class AITester:
 
         Examples:
         | AI High Level Step | 1 | Open the login page |
-        | AI Step | action=selenium_go_to | description=Navigate to /login | status=PASS |
+        | AI Step | action=selenium_open_browser |
+        | ... | description=Navigate to https://example.test/login | status=PASS |
 
         | AI High Level Step | 2 | Verify successful login |
-        | AI Step | action=selenium_page_should_contain | description=Check dashboard welcome text | status=PASS |
+        | AI Step | action=selenium_page_should_contain |
+        | ... | description=Check dashboard welcome text | status=PASS |
+        | ... | assertion_message=Welcome back, Robert |
+
+        | AI High Level Step | 3 | Capture mobile checkout evidence |
+        | AI Step | action=appium_capture_page_screenshot |
+        | ... | description=Capture confirmation screen | status=PASS |
+        | ... | screenshot_path=${OUTPUT DIR}/checkout-confirmation.png |
         """
         safe_desc = self._escape_html(step_description).replace("\n", "<br/>")
         html_block = (
@@ -1287,11 +1321,16 @@ class AITester:
         Examples:
         | AI Step | action=selenium_click_element |
         | ... | description=Click Sign in button | status=PASS | duration_ms=184 |
+        | ... | high_level_step_number=1 | high_level_step_description=Sign in |
 
         | AI Step | action=selenium_page_should_contain |
         | ... | description=Verify dashboard message | status=PASS |
         | ... | assertion_message=Welcome back | high_level_step_number=2 |
         | ... | high_level_step_description=Verify successful login |
+
+        | AI Step | action=selenium_capture_page_screenshot |
+        | ... | description=Capture populated checkout summary | status=PASS |
+        | ... | screenshot_path=${OUTPUT DIR}/checkout-summary.png |
 
         | AI Step | action=appium_capture_page_screenshot |
         | ... | description=Capture failure evidence | status=ERROR |
@@ -1396,9 +1435,19 @@ class AITester:
         disappears, opening a hidden menu, waiting for the page to settle, or
         clearing a permission prompt.
 
-        For UI modes, the keyword attaches to an already-open SeleniumLibrary
-        or AppiumLibrary session. It does not create browsers or mobile app
-        sessions on its own.
+        If ``test_steps`` is omitted, AITester also looks for numbered steps in
+        common RF variables such as ``${TEST_STEPS}``, ``${AI_STEPS}``,
+        ``${AI_TEST_STEPS}``, ``${AITESTER_TEST_STEPS}``, and
+        ``${USER_TEST_STEPS}``.
+
+        The executor remains fully autonomous. When a flow encounters a blocker
+        or hard gate, it uses state inspection, suite variables, and evidence
+        capture instead of requesting a human handoff.
+
+        For deterministic UI runs, open SeleniumLibrary or AppiumLibrary
+        sessions first so the executor starts from a known state. When no
+        active UI session exists, the underlying web/mobile RF tools can still
+        create the initial entry session if the environment supports it.
 
         Arguments:
         - ``test_objective``: High-level goal, scenario description, or a text
@@ -1420,22 +1469,25 @@ class AITester:
         Failures:
         - Fails if orchestration raises an exception.
         - Fails if the AI returns a clearly failed final status.
+        - Fails fast if both ``test_objective`` and numbered steps are empty.
         - Fails if user-defined steps are not completed successfully.
 
         Examples:
         | ${status}= | Run AI Test |
         | ... | test_objective=Validate login, logout, and session reuse |
         | ... | app_context=Customer portal with email and password authentication |
+        | ... | test_mode=web | max_iterations=25 |
         | Log | ${status} |
 
-        | ${TEST_STEPS}= | Set Variable |
+        | ${AI_STEPS}= | Set Variable |
         | ... | 1. Open the login page |
         | ... | 2. Sign in with valid credentials |
         | ... | 3. Verify the dashboard is visible |
         | ${status}= | Run AI Test |
         | ... | test_objective=Smoke test the login flow |
         | ... | app_context=Web application with active Selenium session |
-        | ... | test_mode=web | test_steps=${TEST_STEPS} | max_iterations=30 |
+        | ... | test_mode=web | test_steps=${AI_STEPS} | max_iterations=30 |
+        | ... | scroll_into_view=False |
 
         | ${API_OBJECTIVE}= | Catenate | SEPARATOR=\\n |
         | ... | 1. Create a user |
@@ -1444,6 +1496,12 @@ class AITester:
         | ${status}= | Run AI Test |
         | ... | test_objective=${API_OBJECTIVE} |
         | ... | test_mode=api | app_context=User management service |
+        | ... | max_iterations=20 |
+
+        | ${status}= | Run AI Test |
+        | ... | test_objective=Validate first-run onboarding and dashboard access |
+        | ... | app_context=Android application with an active Appium session |
+        | ... | test_mode=mobile | max_iterations=35 |
         """
         self._ensure_orchestrator()
 
@@ -1544,6 +1602,10 @@ class AITester:
         numbered steps. The agent explores the application directly, focusing on
         important flows and risk areas supplied in ``focus_areas``.
 
+        Exploration uses the library's configured ``test_mode`` and executes
+        directly in the matching executor instead of requesting a separate
+        planning handoff.
+
         For web and mobile sessions, the agent can still react to transient UI
         blockers, such as cookie banners or permission prompts, while keeping
         exploration centered on the requested areas.
@@ -1569,12 +1631,19 @@ class AITester:
         | ${status}= | Run AI Exploration |
         | ... | app_context=E-commerce site with active browser session |
         | ... | focus_areas=navigation, filtering, cart operations |
+        | ... | max_iterations=40 |
         | Log | ${status} |
 
+        | Library | AITester | platform=OpenAI | test_mode=mobile |
         | ${status}= | Run AI Exploration |
         | ... | app_context=Android banking app on dashboard screen |
         | ... | focus_areas=payments, settings, notification permissions |
         | ... | max_iterations=80 |
+
+        | Library | AITester | platform=Ollama | test_mode=api |
+        | ${status}= | Run AI Exploration |
+        | ... | app_context=User-management REST API with active RequestsLibrary session |
+        | ... | focus_areas=auth failures, pagination, error responses |
         """
         self._ensure_orchestrator()
 
@@ -1657,6 +1726,10 @@ class AITester:
         ``api_spec_url``, parses optional numbered steps, and executes the run
         in API mode.
 
+        If ``test_steps`` is omitted, AITester also looks for numbered API
+        steps in common RF variables such as ``${TEST_STEPS}`` and
+        ``${AI_STEPS}``.
+
         Arguments:
         - ``test_objective``: High-level API goal, scenario description, or text
           that already contains numbered steps.
@@ -1679,6 +1752,7 @@ class AITester:
         - Fails if user-defined steps are not completed successfully.
 
         Examples:
+        | Create Session | api | https://api.example.com |
         | ${status}= | Run AI API Test |
         | ... | test_objective=Validate order CRUD operations and auth failures |
         | ... | base_url=https://api.example.com |
@@ -1693,6 +1767,14 @@ class AITester:
         | ... | test_objective=Exercise the user lifecycle endpoints |
         | ... | base_url=https://api.example.com |
         | ... | test_steps=${TEST_STEPS} | max_iterations=25 |
+
+        | ${AI_STEPS}= | Set Variable |
+        | ... | 1. GET /health and verify HTTP 200 |
+        | ... | 2. GET /users?page=2 and verify pagination metadata |
+        | ${status}= | Run AI API Test |
+        | ... | test_objective=Smoke test health and pagination endpoints |
+        | ... | base_url=https://api.example.com |
+        | ... | test_steps=${AI_STEPS} | scroll_into_view=False |
         """
         self._ensure_orchestrator()
 
@@ -1802,6 +1884,15 @@ class AITester:
         back navigation, and context switching when the active Appium session
         exposes those capabilities.
 
+        If ``test_steps`` is omitted, AITester also looks for numbered mobile
+        steps in common RF variables such as ``${TEST_STEPS}`` and
+        ``${AI_STEPS}``.
+
+        The executor remains fully autonomous. Permission prompts, onboarding
+        interruptions, or other transient blockers are handled in-flow when
+        possible; otherwise the blocked step fails with evidence instead of
+        pausing for human input.
+
         Arguments:
         - ``test_objective``: High-level mobile objective or text that contains
           numbered main-flow steps.
@@ -1830,6 +1921,7 @@ class AITester:
         | ${status}= | Run AI Mobile Test |
         | ... | test_objective=Validate onboarding and dashboard access |
         | ... | app_context=Android banking app with existing Appium session |
+        | ... | max_iterations=30 |
         | Log | ${status} |
 
         | ${TEST_STEPS}= | Set Variable |
@@ -1840,6 +1932,15 @@ class AITester:
         | ... | test_objective=Smoke test first-run experience |
         | ... | app_context=Fresh Android install |
         | ... | test_steps=${TEST_STEPS} | max_iterations=40 |
+
+        | ${AI_STEPS}= | Set Variable |
+        | ... | 1. Open the profile tab |
+        | ... | 2. Switch into WEBVIEW content if the profile screen uses it |
+        | ... | 3. Verify the profile email address is visible |
+        | ${status}= | Run AI Mobile Test |
+        | ... | test_objective=Validate hybrid profile screen rendering |
+        | ... | app_context=Android hybrid app with profile screen behind a tab bar |
+        | ... | test_steps=${AI_STEPS} | scroll_into_view=False |
         """
         self._ensure_orchestrator()
 
@@ -1929,6 +2030,8 @@ class AITester:
 
         The returned text is useful for debugging library imports, verifying the
         selected model, or logging execution metadata at the start of a suite.
+        The reported ``Base URL`` is the AI provider endpoint, not an
+        application URL under test.
 
         Returns:
         - Multi-line text containing the active platform, model, base URL,
@@ -1940,6 +2043,11 @@ class AITester:
 
         | ${info}= | Get AI Platform Info |
         | Should Contain | ${info} | Platform: OpenAI |
+        | Should Contain | ${info} | Test Mode: web |
+
+        | ${info}= | Get AI Platform Info |
+        | Should Contain | ${info} | Max Iterations: 50 |
+        | Should Contain | ${info} | Verbose: False |
         """
         model_name = self.model or self.platform.value["default_model"]
         base = self.base_url or self.platform.value["default_base_url"]

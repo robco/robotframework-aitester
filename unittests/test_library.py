@@ -55,11 +55,19 @@ def test_libdoc_docs_render_cleanly(tmp_path):
     spec = json.loads(output.read_text())
     init_doc = spec["inits"][0]["doc"]
     run_test_doc = next(kw["doc"] for kw in spec["keywords"] if kw["name"] == "Run AI Test")
+    exploration_doc = next(
+        kw["doc"] for kw in spec["keywords"] if kw["name"] == "Run AI Exploration"
+    )
 
     assert "Args:" not in init_doc
     assert "<li><code>platform</code>" in init_doc
+    assert "platform=Manual" in init_doc
+    assert "AI provider base URL override" in init_doc
     assert "<pre>" not in run_test_doc
     assert "test_objective=${API_OBJECTIVE}" in run_test_doc
+    assert "test_steps=${AI_STEPS}" in run_test_doc
+    assert "manual intervention" not in run_test_doc.lower()
+    assert "test_mode=mobile" in exploration_doc
 
 
 def test_extract_user_defined_steps_from_list_objective():
